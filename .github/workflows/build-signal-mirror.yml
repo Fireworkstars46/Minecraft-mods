@@ -40,6 +40,7 @@ jobs:
         if: always()
         run: |
           mkdir -p SignalMirror/releases
+          echo "$GITHUB_RUN_ID" > SignalMirror/releases/run-id.txt
           cp SignalMirror/build.log SignalMirror/releases/Signal-Mirror-build.log || true
           rm -f SignalMirror/releases/Signal-Mirror-v1.0.apk
           if [ -f SignalMirror/app/build/outputs/apk/debug/app-debug.apk ]; then
