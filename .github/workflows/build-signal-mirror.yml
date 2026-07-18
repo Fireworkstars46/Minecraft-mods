@@ -1,0 +1,58 @@
+name: Build Signal Mirror APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ signal-mirror-widget ]
+    paths:
+      - 'SignalMirror/**'
+      - '.github/workflows/build-signal-mirror.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build APK
+        id: build
+        continue-on-error: true
+        working-directory: SignalMirror
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleDebug 2>&1 | tee build.log
+      - name: Prepare outputs
+        if: always()
+        run: |
+          cp SignalMirror/build.log Signal-Mirror-build.log || true
+          if [ -f SignalMirror/app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp SignalMirror/app/build/outputs/apk/debug/app-debug.apk Signal-Mirror-v1.0.apk
+          fi
+      - name: Upload APK
+        if: hashFiles('Signal-Mirror-v1.0.apk') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: Signal-Mirror-v1.0
+          path: Signal-Mirror-v1.0.apk
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Signal-Mirror-build-log
+          path: Signal-Mirror-build.log
+      - name: Fail if build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
