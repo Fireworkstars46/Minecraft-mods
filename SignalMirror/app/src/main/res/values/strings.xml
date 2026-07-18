@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Signal Mirror</string>
+    <string name="service_description">Enlarges the Samsung cellular signal icon in a home-screen widget. Automatic captures occur only while the home launcher is visible. Full screenshots are discarded immediately.</string>
+    <string name="widget_description">Large mirrored cellular signal icon</string>
+</resources>
