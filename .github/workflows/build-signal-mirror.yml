@@ -5,14 +5,16 @@ on:
   push:
     branches: [ signal-mirror-widget ]
     paths:
-      - 'SignalMirror/**'
+      - 'SignalMirror/app/**'
+      - 'SignalMirror/*.gradle'
+      - 'SignalMirror/settings.gradle'
       - '.github/workflows/build-signal-mirror.yml'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -37,22 +39,34 @@ jobs:
       - name: Prepare outputs
         if: always()
         run: |
-          cp SignalMirror/build.log Signal-Mirror-build.log || true
+          mkdir -p SignalMirror/releases
+          cp SignalMirror/build.log SignalMirror/releases/Signal-Mirror-build.log || true
+          rm -f SignalMirror/releases/Signal-Mirror-v1.0.apk
           if [ -f SignalMirror/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp SignalMirror/app/build/outputs/apk/debug/app-debug.apk Signal-Mirror-v1.0.apk
+            cp SignalMirror/app/build/outputs/apk/debug/app-debug.apk SignalMirror/releases/Signal-Mirror-v1.0.apk
           fi
-      - name: Upload APK
-        if: hashFiles('Signal-Mirror-v1.0.apk') != ''
+      - name: Upload APK artifact
+        if: hashFiles('SignalMirror/releases/Signal-Mirror-v1.0.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: Signal-Mirror-v1.0
-          path: Signal-Mirror-v1.0.apk
-      - name: Upload build log
+          path: SignalMirror/releases/Signal-Mirror-v1.0.apk
+      - name: Upload build log artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Signal-Mirror-build-log
-          path: Signal-Mirror-build.log
+          path: SignalMirror/releases/Signal-Mirror-build.log
+      - name: Commit build outputs to branch
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f SignalMirror/releases
+          if ! git diff --cached --quiet; then
+            git commit -m 'Build Signal Mirror APK [skip ci]'
+            git push origin HEAD:signal-mirror-widget
+          fi
       - name: Fail if build failed
         if: steps.build.outcome == 'failure'
         run: exit 1
