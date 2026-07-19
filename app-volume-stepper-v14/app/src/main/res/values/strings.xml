@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">App Volume Stepper</string>
+    <string name="service_name">App Volume Stepper controls</string>
+    <string name="service_description">Shows movable minus and plus controls only while Samsung&apos;s separate app-volume percentage slider is visible.</string>
+</resources>
