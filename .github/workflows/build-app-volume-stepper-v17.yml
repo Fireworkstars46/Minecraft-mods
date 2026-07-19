@@ -3,7 +3,6 @@ name: Build App Volume Stepper v1.7
 on:
   pull_request:
     paths:
-      - 'app-volume-stepper-v17-project.zip.b64'
       - 'v17parts/**'
       - '.github/workflows/build-app-volume-stepper-v17.yml'
 
@@ -33,15 +32,20 @@ jobs:
 
       - name: Restore project
         run: |
-          python3 - <<'PY'
-          import base64, hashlib, pathlib, re
-          source = pathlib.Path('app-volume-stepper-v17-project.zip.b64').read_bytes()
-          clean = re.sub(rb'[^A-Za-z0-9+/=]', b'', source)
-          data = base64.b64decode(clean, validate=False)
-          pathlib.Path('project.zip').write_bytes(data)
-          print('encoded bytes:', len(source), 'clean:', len(clean), 'zip:', len(data))
-          print('zip sha256:', hashlib.sha256(data).hexdigest())
-          PY
+          cat \
+            v17parts/part00 \
+            v17parts/part01 \
+            v17parts/part02 \
+            v17parts/p3_0 \
+            v17parts/p3_1 \
+            v17parts/p3_2 \
+            v17parts/p3_3 \
+            v17parts/p4_0 \
+            v17parts/p4_1 \
+            v17parts/p4_2 \
+            v17parts/p4_3 > project.zip.b64
+          base64 -d project.zip.b64 > project.zip
+          echo '9af107ce8e16fe5d462f86ad786f92c9ae8b5fdfa5e7fdb46e70607d91cce13c  project.zip' | sha256sum -c -
           unzip -t project.zip
           unzip -q project.zip
           test -f app-volume-stepper-v17/app/src/main/java/com/garrett/appvolumestepper/VolumeStepperService.java
