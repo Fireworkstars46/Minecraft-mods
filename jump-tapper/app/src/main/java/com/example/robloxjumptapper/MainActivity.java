@@ -8,10 +8,13 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -19,8 +22,14 @@ public class MainActivity extends Activity {
     public static final String PREFS = "tap_prefs";
     public static final String ACTION_RELOAD = "com.example.robloxjumptapper.RELOAD";
 
+    private EditText hoursField;
     private EditText minutesField;
     private EditText secondsField;
+    private EditText millisField;
+    private EditText totalMillisField;
+    private LinearLayout splitFieldsRow;
+    private RadioButton splitMode;
+    private RadioButton millisMode;
     private CheckBox robloxOnly;
 
     @Override
@@ -30,18 +39,18 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(22), dp(28), dp(22), dp(22));
+        root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper");
+        title.setText("Jump Tapper v1.1");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView help = new TextView(this);
-        help.setText("1. Enable the accessibility service.\n2. Set the interval.\n3. In Roblox, drag the JUMP target over the jump button.\n4. Tap START on the floating control.");
-        help.setTextSize(16);
-        help.setPadding(0, dp(14), 0, dp(18));
+        help.setText("Enable the accessibility service, choose any interval you want, then drag JUMP over Roblox's jump button and press START.");
+        help.setTextSize(15);
+        help.setPadding(0, dp(10), 0, dp(14));
         root.addView(help);
 
         Button accessibility = new Button(this);
@@ -53,40 +62,77 @@ public class MainActivity extends Activity {
         intervalLabel.setText("Tap interval");
         intervalLabel.setTextSize(18);
         intervalLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        intervalLabel.setPadding(0, dp(20), 0, dp(8));
+        intervalLabel.setPadding(0, dp(18), 0, dp(6));
         root.addView(intervalLabel);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        RadioGroup modeGroup = new RadioGroup(this);
+        modeGroup.setOrientation(RadioGroup.HORIZONTAL);
+        splitMode = new RadioButton(this);
+        splitMode.setText("H / M / S / ms");
+        millisMode = new RadioButton(this);
+        millisMode.setText("Total milliseconds");
+        modeGroup.addView(splitMode, new RadioGroup.LayoutParams(0, dp(48), 1));
+        modeGroup.addView(millisMode, new RadioGroup.LayoutParams(0, dp(48), 1));
+        root.addView(modeGroup);
 
-        minutesField = numberField(String.valueOf(prefs.getInt("minutes", 0)));
-        secondsField = numberField(String.valueOf(prefs.getInt("seconds", 30)));
-        row.addView(minutesField, new LinearLayout.LayoutParams(0, dp(52), 1));
-        TextView minText = new TextView(this);
-        minText.setText(" min   ");
-        minText.setTextSize(16);
-        row.addView(minText);
-        row.addView(secondsField, new LinearLayout.LayoutParams(0, dp(52), 1));
-        TextView secText = new TextView(this);
-        secText.setText(" sec");
-        secText.setTextSize(16);
-        row.addView(secText);
-        root.addView(row);
+        long savedInterval = prefs.getLong("interval_ms", 30000L);
+        long hours = savedInterval / 3600000L;
+        long remainder = savedInterval % 3600000L;
+        long minutes = remainder / 60000L;
+        remainder %= 60000L;
+        long seconds = remainder / 1000L;
+        long millis = remainder % 1000L;
+
+        splitFieldsRow = new LinearLayout(this);
+        splitFieldsRow.setOrientation(LinearLayout.HORIZONTAL);
+        splitFieldsRow.setGravity(Gravity.CENTER_VERTICAL);
+        hoursField = numberField(String.valueOf(hours));
+        minutesField = numberField(String.valueOf(minutes));
+        secondsField = numberField(String.valueOf(seconds));
+        millisField = numberField(String.valueOf(millis));
+        addLabeledField(splitFieldsRow, hoursField, "h");
+        addLabeledField(splitFieldsRow, minutesField, "m");
+        addLabeledField(splitFieldsRow, secondsField, "s");
+        addLabeledField(splitFieldsRow, millisField, "ms");
+        root.addView(splitFieldsRow);
+
+        totalMillisField = numberField(String.valueOf(savedInterval));
+        totalMillisField.setHint("Example: 30000");
+        root.addView(totalMillisField, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
+
+        boolean useMillisMode = prefs.getBoolean("millis_mode", false);
+        if (useMillisMode) millisMode.setChecked(true); else splitMode.setChecked(true);
+        updateModeVisibility(useMillisMode);
+        modeGroup.setOnCheckedChangeListener((group, checkedId) ->
+                updateModeVisibility(millisMode.isChecked()));
+
+        TextView examples = new TextView(this);
+        examples.setText("Examples: 1000 ms = 1 sec • 30000 ms = 30 sec • 90000 ms = 1 min 30 sec");
+        examples.setTextSize(13);
+        examples.setPadding(0, dp(6), 0, dp(8));
+        root.addView(examples);
 
         LinearLayout presets = new LinearLayout(this);
         presets.setOrientation(LinearLayout.HORIZONTAL);
-        presets.setPadding(0, dp(8), 0, 0);
-        addPreset(presets, "30s", 0, 30);
-        addPreset(presets, "1m", 1, 0);
-        addPreset(presets, "1m30", 1, 30);
-        addPreset(presets, "5m", 5, 0);
+        addPreset(presets, "1s", 1000L);
+        addPreset(presets, "30s", 30000L);
+        addPreset(presets, "1m", 60000L);
+        addPreset(presets, "1m30", 90000L);
         root.addView(presets);
+
+        LinearLayout presets2 = new LinearLayout(this);
+        presets2.setOrientation(LinearLayout.HORIZONTAL);
+        addPreset(presets2, "5m", 300000L);
+        addPreset(presets2, "10m", 600000L);
+        addPreset(presets2, "1h", 3600000L);
+        addPreset(presets2, "24h", 86400000L);
+        root.addView(presets2);
 
         robloxOnly = new CheckBox(this);
         robloxOnly.setText("Only tap while Roblox is the foreground app");
         robloxOnly.setChecked(prefs.getBoolean("roblox_only", true));
-        robloxOnly.setPadding(0, dp(14), 0, dp(10));
+        robloxOnly.setPadding(0, dp(10), 0, dp(8));
         root.addView(robloxOnly);
 
         Button save = new Button(this);
@@ -95,10 +141,11 @@ public class MainActivity extends Activity {
         root.addView(save);
 
         TextView note = new TextView(this);
-        note.setText("Tip: 30–90 seconds is much gentler than rapid tapping. The target briefly hides while each tap is sent so it does not block the jump button.");
-        note.setTextSize(14);
-        note.setPadding(0, dp(18), 0, 0);
+        note.setText("Full custom mode allows values down to 1 ms. Very low values can overwhelm Roblox/Android, so 1000 ms or higher is usually smoother.");
+        note.setTextSize(13);
+        note.setPadding(0, dp(14), 0, 0);
         root.addView(note);
+
         setContentView(root);
     }
 
@@ -111,40 +158,91 @@ public class MainActivity extends Activity {
         return e;
     }
 
-    private void addPreset(LinearLayout row, String label, int min, int sec) {
+    private void addLabeledField(LinearLayout row, EditText field, String label) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER);
+        cell.addView(field, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setGravity(Gravity.CENTER);
+        t.setTextSize(12);
+        cell.addView(t);
+        row.addView(cell, new LinearLayout.LayoutParams(0, dp(70), 1));
+    }
+
+    private void updateModeVisibility(boolean totalMillisMode) {
+        splitFieldsRow.setVisibility(totalMillisMode ? View.GONE : View.VISIBLE);
+        totalMillisField.setVisibility(totalMillisMode ? View.VISIBLE : View.GONE);
+    }
+
+    private void addPreset(LinearLayout row, String label, long valueMs) {
         Button b = new Button(this);
         b.setText(label);
-        b.setTextSize(12);
-        b.setOnClickListener(v -> {
-            minutesField.setText(String.valueOf(min));
-            secondsField.setText(String.valueOf(sec));
-        });
-        row.addView(b, new LinearLayout.LayoutParams(0, dp(46), 1));
+        b.setTextSize(11);
+        b.setOnClickListener(v -> setIntervalFields(valueMs));
+        row.addView(b, new LinearLayout.LayoutParams(0, dp(44), 1));
+    }
+
+    private void setIntervalFields(long valueMs) {
+        totalMillisField.setText(String.valueOf(valueMs));
+        long h = valueMs / 3600000L;
+        long r = valueMs % 3600000L;
+        long m = r / 60000L;
+        r %= 60000L;
+        long s = r / 1000L;
+        long ms = r % 1000L;
+        hoursField.setText(String.valueOf(h));
+        minutesField.setText(String.valueOf(m));
+        secondsField.setText(String.valueOf(s));
+        millisField.setText(String.valueOf(ms));
+    }
+
+    private long parseLong(EditText field) throws NumberFormatException {
+        String text = field.getText().toString().trim();
+        if (text.isEmpty()) return 0L;
+        return Long.parseLong(text);
     }
 
     private void saveSettings() {
-        int min;
-        int sec;
+        long interval;
         try {
-            min = Integer.parseInt(minutesField.getText().toString().trim());
-            sec = Integer.parseInt(secondsField.getText().toString().trim());
+            if (millisMode.isChecked()) {
+                interval = parseLong(totalMillisField);
+            } else {
+                long h = parseLong(hoursField);
+                long m = parseLong(minutesField);
+                long s = parseLong(secondsField);
+                long ms = parseLong(millisField);
+                if (m > 59 || s > 59 || ms > 999) {
+                    Toast.makeText(this, "Minutes/seconds must be 0–59 and milliseconds 0–999.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                interval = Math.addExact(
+                        Math.addExact(Math.multiplyExact(h, 3600000L), Math.multiplyExact(m, 60000L)),
+                        Math.addExact(Math.multiplyExact(s, 1000L), ms));
+            }
         } catch (Exception e) {
-            Toast.makeText(this, "Enter a valid number.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "That number is too large or invalid.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (min < 0 || sec < 0 || sec > 59 || (min == 0 && sec == 0)) {
-            Toast.makeText(this, "Use at least 1 second. Seconds must be 0–59.", Toast.LENGTH_LONG).show();
+
+        if (interval < 1L) {
+            Toast.makeText(this, "Minimum interval is 1 millisecond.", Toast.LENGTH_LONG).show();
             return;
         }
+
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putInt("minutes", min)
-                .putInt("seconds", sec)
+                .putLong("interval_ms", interval)
+                .putBoolean("millis_mode", millisMode.isChecked())
                 .putBoolean("roblox_only", robloxOnly.isChecked())
                 .apply();
+
         Intent intent = new Intent(ACTION_RELOAD);
         intent.setPackage(getPackageName());
         sendBroadcast(intent);
-        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Saved: " + interval + " ms", Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int value) {
