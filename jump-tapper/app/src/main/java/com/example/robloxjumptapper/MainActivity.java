@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper v1.8");
+        title.setText("Jump Tapper v1.9");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
         root.addView(showAll);
 
         TextView note = new TextView(this);
-        note.setText("Use LOCK/MOVE on the floating bar. MOVE lets you drag the target. START automatically makes the target pass-through so it does not block the real button underneath.");
+        note.setText("v1.9: The target is always touch-through, so it cannot block Android navigation buttons. Tap MOVE, then drag the ◎ handle on the floating bar to reposition the target. Tap LOCK when done.");
         note.setTextSize(13);
         note.setPadding(0, dp(8), 0, dp(8));
         root.addView(note);
