@@ -32,9 +32,7 @@ public class TapAccessibilityService extends AccessibilityService {
     private WindowManager.LayoutParams targetParams, controlParams, restoreParams;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running = false;
-    private String currentPackage = "";
     private long intervalMs = 30000L;
-    private boolean robloxOnly = true;
     private boolean targetVisible = true, controlVisible = true;
     private int targetSizeDp = 58, controlScale = 100;
     private Button startStop;
@@ -42,7 +40,7 @@ public class TapAccessibilityService extends AccessibilityService {
     private final Runnable tapLoop = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            if (!robloxOnly || "com.roblox.client".equals(currentPackage)) performTargetTap();
+            performTargetTap();
             handler.postDelayed(this, Math.max(1L, intervalMs));
         }
     };
@@ -74,7 +72,6 @@ public class TapAccessibilityService extends AccessibilityService {
     private void loadSettings() {
         SharedPreferences p = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
         intervalMs = Math.max(1L, p.getLong("interval_ms", 30000L));
-        robloxOnly = p.getBoolean("roblox_only", true);
         targetSizeDp = Math.max(30, Math.min(140, p.getInt("target_size_dp", 58)));
         controlScale = Math.max(60, Math.min(160, p.getInt("control_scale", 100)));
         targetVisible = p.getBoolean("target_visible", true);
@@ -135,6 +132,11 @@ public class TapAccessibilityService extends AccessibilityService {
         startStop.setOnClickListener(v -> toggleRunning());
         control.addView(startStop, new LinearLayout.LayoutParams(scaled(84), scaled(46)));
 
+        Button tapNow = new Button(this);
+        tapNow.setText("TAP");
+        tapNow.setOnClickListener(v -> performTargetTap());
+        control.addView(tapNow, new LinearLayout.LayoutParams(scaled(58), scaled(46)));
+
         Button targetToggle = new Button(this);
         targetToggle.setText("J");
         targetToggle.setOnClickListener(v -> {
@@ -172,7 +174,6 @@ public class TapAccessibilityService extends AccessibilityService {
         restoreBubble.setGravity(Gravity.CENTER);
         restoreBubble.setTypeface(Typeface.DEFAULT_BOLD);
         restoreBubble.setBackground(circleBackground(0xDD3C4043));
-        restoreBubble.setOnClickListener(v -> showControls());
 
         int size = dp(44);
         restoreParams = new WindowManager.LayoutParams(size, size,
@@ -224,41 +225,56 @@ public class TapAccessibilityService extends AccessibilityService {
         running = !running;
         if (startStop != null) startStop.setText(running ? "STOP" : "START");
         handler.removeCallbacks(tapLoop);
-        if (running) {
-            if ("".equals(currentPackage)) currentPackage = "com.roblox.client";
-            handler.postDelayed(tapLoop, 150L);
-        }
+        if (running) handler.postDelayed(tapLoop, 150L);
     }
 
     private void performTargetTap() {
-        if (target == null || targetParams == null) return;
-        final float x = targetParams.x + targetParams.width / 2f;
-        final float y = targetParams.y + targetParams.height / 2f;
-        final boolean wasVisible = targetVisible && target.getVisibility() == View.VISIBLE;
-        if (wasVisible) target.setVisibility(View.INVISIBLE);
+        if (target == null || targetParams == null || windowManager == null) return;
+
+        // Use the actual on-screen position of the target, not LayoutParams coordinates.
+        int[] location = new int[2];
+        target.getLocationOnScreen(location);
+        final float x = location[0] + target.getWidth() / 2f;
+        final float y = location[1] + target.getHeight() / 2f;
+        final boolean shouldShowAfter = targetVisible;
+
+        // Make the overlay fully non-touchable while the injected touch happens.
+        final int oldFlags = targetParams.flags;
+        targetParams.flags = oldFlags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        target.setAlpha(0f);
+        try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
 
         handler.postDelayed(() -> {
             Path path = new Path();
             path.moveTo(x, y);
-            GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 60);
+            GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0L, 100L);
             GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
-            dispatchGesture(gesture, new GestureResultCallback() {
+
+            boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription g) {
-                    if (target != null && targetVisible) target.setVisibility(View.VISIBLE);
+                    restoreTargetAfterTap(oldFlags, shouldShowAfter);
                 }
+
                 @Override public void onCancelled(GestureDescription g) {
-                    if (target != null && targetVisible) target.setVisibility(View.VISIBLE);
+                    restoreTargetAfterTap(oldFlags, shouldShowAfter);
                 }
             }, null);
-        }, 35L);
+
+            if (!accepted) restoreTargetAfterTap(oldFlags, shouldShowAfter);
+        }, 80L);
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event.getPackageName() == null) return;
-        String pkg = event.getPackageName().toString();
-        if (!getPackageName().equals(pkg)) currentPackage = pkg;
+    private void restoreTargetAfterTap(int oldFlags, boolean shouldShow) {
+        handler.postDelayed(() -> {
+            if (target == null || targetParams == null) return;
+            targetParams.flags = oldFlags;
+            target.setAlpha(shouldShow ? 0.9f : 0f);
+            target.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
+            try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
+        }, 40L);
     }
 
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
     @Override public void onInterrupt() { }
 
     @Override public void onDestroy() {
