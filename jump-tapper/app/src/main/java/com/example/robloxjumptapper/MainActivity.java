@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -21,6 +22,7 @@ import android.widget.Toast;
 public class MainActivity extends Activity {
     public static final String PREFS = "tap_prefs";
     public static final String ACTION_RELOAD = "com.example.robloxjumptapper.RELOAD";
+    private static final long MAX_INTERVAL_MS = 86400000L;
 
     private EditText hoursField;
     private EditText minutesField;
@@ -42,13 +44,13 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper v1.1");
+        title.setText("Jump Tapper v1.2");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView help = new TextView(this);
-        help.setText("Enable the accessibility service, choose any interval you want, then drag JUMP over Roblox's jump button and press START.");
+        help.setText("Enable the accessibility service, choose any interval up to 24 hours, then drag JUMP over Roblox's jump button and press START.");
         help.setTextSize(15);
         help.setPadding(0, dp(10), 0, dp(14));
         root.addView(help);
@@ -75,7 +77,7 @@ public class MainActivity extends Activity {
         modeGroup.addView(millisMode, new RadioGroup.LayoutParams(0, dp(48), 1));
         root.addView(modeGroup);
 
-        long savedInterval = prefs.getLong("interval_ms", 30000L);
+        long savedInterval = Math.min(prefs.getLong("interval_ms", 30000L), MAX_INTERVAL_MS);
         long hours = savedInterval / 3600000L;
         long remainder = savedInterval % 3600000L;
         long minutes = remainder / 60000L;
@@ -86,18 +88,18 @@ public class MainActivity extends Activity {
         splitFieldsRow = new LinearLayout(this);
         splitFieldsRow.setOrientation(LinearLayout.HORIZONTAL);
         splitFieldsRow.setGravity(Gravity.CENTER_VERTICAL);
-        hoursField = numberField(String.valueOf(hours));
-        minutesField = numberField(String.valueOf(minutes));
-        secondsField = numberField(String.valueOf(seconds));
-        millisField = numberField(String.valueOf(millis));
+        hoursField = numberField(String.valueOf(hours), 2);
+        minutesField = numberField(String.valueOf(minutes), 4);
+        secondsField = numberField(String.valueOf(seconds), 5);
+        millisField = numberField(String.valueOf(millis), 8);
         addLabeledField(splitFieldsRow, hoursField, "h");
         addLabeledField(splitFieldsRow, minutesField, "m");
         addLabeledField(splitFieldsRow, secondsField, "s");
         addLabeledField(splitFieldsRow, millisField, "ms");
         root.addView(splitFieldsRow);
 
-        totalMillisField = numberField(String.valueOf(savedInterval));
-        totalMillisField.setHint("Example: 30000");
+        totalMillisField = numberField(String.valueOf(savedInterval), 8);
+        totalMillisField.setHint("Max 86400000");
         root.addView(totalMillisField, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
 
@@ -107,11 +109,11 @@ public class MainActivity extends Activity {
         modeGroup.setOnCheckedChangeListener((group, checkedId) ->
                 updateModeVisibility(millisMode.isChecked()));
 
-        TextView examples = new TextView(this);
-        examples.setText("Examples: 1000 ms = 1 sec • 30000 ms = 30 sec • 90000 ms = 1 min 30 sec");
-        examples.setTextSize(13);
-        examples.setPadding(0, dp(6), 0, dp(8));
-        root.addView(examples);
+        TextView limits = new TextView(this);
+        limits.setText("24-hour maximum: 24 h • 1440 m • 86400 s • 86400000 ms");
+        limits.setTextSize(13);
+        limits.setPadding(0, dp(6), 0, dp(8));
+        root.addView(limits);
 
         LinearLayout presets = new LinearLayout(this);
         presets.setOrientation(LinearLayout.HORIZONTAL);
@@ -141,7 +143,7 @@ public class MainActivity extends Activity {
         root.addView(save);
 
         TextView note = new TextView(this);
-        note.setText("Full custom mode allows values down to 1 ms. Very low values can overwhelm Roblox/Android, so 1000 ms or higher is usually smoother.");
+        note.setText("Minimum is 1 ms. Maximum is 24 hours. Very low values can overwhelm Roblox/Android, so 1000 ms or higher is usually smoother.");
         note.setTextSize(13);
         note.setPadding(0, dp(14), 0, 0);
         root.addView(note);
@@ -149,12 +151,13 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private EditText numberField(String value) {
+    private EditText numberField(String value, int maxChars) {
         EditText e = new EditText(this);
         e.setInputType(InputType.TYPE_CLASS_NUMBER);
         e.setGravity(Gravity.CENTER);
         e.setText(value);
         e.setSelectAllOnFocus(true);
+        e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(maxChars)});
         return e;
     }
 
@@ -186,6 +189,7 @@ public class MainActivity extends Activity {
     }
 
     private void setIntervalFields(long valueMs) {
+        valueMs = Math.min(valueMs, MAX_INTERVAL_MS);
         totalMillisField.setText(String.valueOf(valueMs));
         long h = valueMs / 3600000L;
         long r = valueMs % 3600000L;
@@ -215,8 +219,8 @@ public class MainActivity extends Activity {
                 long m = parseLong(minutesField);
                 long s = parseLong(secondsField);
                 long ms = parseLong(millisField);
-                if (m > 59 || s > 59 || ms > 999) {
-                    Toast.makeText(this, "Minutes/seconds must be 0–59 and milliseconds 0–999.", Toast.LENGTH_LONG).show();
+                if (h > 24L || m > 1440L || s > 86400L || ms > 86400000L) {
+                    Toast.makeText(this, "Each field is limited to its 24-hour equivalent.", Toast.LENGTH_LONG).show();
                     return;
                 }
                 interval = Math.addExact(
@@ -230,6 +234,10 @@ public class MainActivity extends Activity {
 
         if (interval < 1L) {
             Toast.makeText(this, "Minimum interval is 1 millisecond.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (interval > MAX_INTERVAL_MS) {
+            Toast.makeText(this, "Maximum interval is 24 hours (86400000 ms).", Toast.LENGTH_LONG).show();
             return;
         }
 
