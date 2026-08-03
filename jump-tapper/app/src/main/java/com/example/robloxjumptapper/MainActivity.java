@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper v1.5");
+        title.setText("Jump Tapper v1.6");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
@@ -119,6 +119,12 @@ public class MainActivity extends Activity {
             showTarget.setChecked(true); showControls.setChecked(true); saveSettings();
         });
         root.addView(showAll);
+
+        TextView restoreNote = new TextView(this);
+        restoreNote.setText("If you hide the controls, a small + bubble stays on-screen. Tap it to bring the controls back.");
+        restoreNote.setTextSize(13);
+        restoreNote.setPadding(0, dp(8), 0, dp(8));
+        root.addView(restoreNote);
 
         robloxOnly = new CheckBox(this);
         robloxOnly.setText("Only tap while Roblox is the foreground app");
