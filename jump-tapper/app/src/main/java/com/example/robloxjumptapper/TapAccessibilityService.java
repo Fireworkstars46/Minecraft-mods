@@ -32,15 +32,17 @@ public class TapAccessibilityService extends AccessibilityService {
     private WindowManager.LayoutParams targetParams, controlParams, restoreParams;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running = false;
+    private boolean moveMode = true;
+    private boolean tapInProgress = false;
     private long intervalMs = 30000L;
     private boolean targetVisible = true, controlVisible = true;
     private int targetSizeDp = 58, controlScale = 100;
-    private Button startStop;
+    private Button startStop, moveButton;
 
     private final Runnable tapLoop = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            performTargetTap();
+            performTargetTap(false);
             handler.postDelayed(this, Math.max(1L, intervalMs));
         }
     };
@@ -78,23 +80,24 @@ public class TapAccessibilityService extends AccessibilityService {
         controlVisible = p.getBoolean("control_visible", true);
     }
 
-    private GradientDrawable circleBackground(int color) {
+    private GradientDrawable circleBackground(int fill, int stroke) {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
-        d.setColor(color);
-        d.setStroke(dp(2), 0xFFFFFFFF);
+        d.setColor(fill);
+        d.setStroke(dp(2), stroke);
         return d;
     }
 
     private void createTarget() {
         if (target != null) return;
         target = new TextView(this);
-        target.setText("JUMP");
+        target.setText("+");
         target.setTextColor(Color.WHITE);
         target.setTypeface(Typeface.DEFAULT_BOLD);
         target.setGravity(Gravity.CENTER);
-        target.setBackground(circleBackground(0xCC1976D2));
-        target.setAlpha(0.9f);
+        // Mostly transparent ring so the real button underneath stays visible.
+        target.setBackground(circleBackground(0x221976D2, 0xDD42A5F5));
+        target.setAlpha(1f);
 
         int size = dp(targetSizeDp);
         targetParams = new WindowManager.LayoutParams(size, size,
@@ -109,9 +112,7 @@ public class TapAccessibilityService extends AccessibilityService {
         windowManager.addView(target, targetParams);
     }
 
-    private int scaled(int value) {
-        return dp(Math.max(1, Math.round(value * controlScale / 100f)));
-    }
+    private int scaled(int value) { return dp(Math.max(1, Math.round(value * controlScale / 100f))); }
 
     private void createControl() {
         if (control != null) return;
@@ -132,9 +133,14 @@ public class TapAccessibilityService extends AccessibilityService {
         startStop.setOnClickListener(v -> toggleRunning());
         control.addView(startStop, new LinearLayout.LayoutParams(scaled(84), scaled(46)));
 
+        moveButton = new Button(this);
+        moveButton.setText(moveMode ? "LOCK" : "MOVE");
+        moveButton.setOnClickListener(v -> setMoveMode(!moveMode));
+        control.addView(moveButton, new LinearLayout.LayoutParams(scaled(66), scaled(46)));
+
         Button tapNow = new Button(this);
         tapNow.setText("TAP");
-        tapNow.setOnClickListener(v -> performTargetTap());
+        tapNow.setOnClickListener(v -> performTargetTap(true));
         control.addView(tapNow, new LinearLayout.LayoutParams(scaled(58), scaled(46)));
 
         Button targetToggle = new Button(this);
@@ -173,7 +179,7 @@ public class TapAccessibilityService extends AccessibilityService {
         restoreBubble.setTextSize(22);
         restoreBubble.setGravity(Gravity.CENTER);
         restoreBubble.setTypeface(Typeface.DEFAULT_BOLD);
-        restoreBubble.setBackground(circleBackground(0xDD3C4043));
+        restoreBubble.setBackground(circleBackground(0xDD3C4043, 0xFFFFFFFF));
 
         int size = dp(44);
         restoreParams = new WindowManager.LayoutParams(size, size,
@@ -207,71 +213,71 @@ public class TapAccessibilityService extends AccessibilityService {
             int size = dp(targetSizeDp);
             targetParams.width = size;
             targetParams.height = size;
-            target.setTextSize(Math.max(8, targetSizeDp / 5f));
+            target.setTextSize(Math.max(12, targetSizeDp / 3f));
             target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
-            try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
+            applyTargetTouchability();
         }
         if (control != null) {
             try { windowManager.removeView(control); } catch (Exception ignored) { }
             control = null;
             startStop = null;
+            moveButton = null;
             createControl();
             control.setVisibility(controlVisible ? View.VISIBLE : View.GONE);
         }
         if (restoreBubble != null) restoreBubble.setVisibility(controlVisible ? View.GONE : View.VISIBLE);
     }
 
+    private void applyTargetTouchability() {
+        if (target == null || targetParams == null || windowManager == null) return;
+        if (moveMode && !running) targetParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        else targetParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
+    }
+
+    private void setMoveMode(boolean enabled) {
+        moveMode = enabled;
+        if (moveButton != null) moveButton.setText(moveMode ? "LOCK" : "MOVE");
+        applyTargetTouchability();
+    }
+
     private void toggleRunning() {
         running = !running;
+        tapInProgress = false;
         if (startStop != null) startStop.setText(running ? "STOP" : "START");
         handler.removeCallbacks(tapLoop);
+        applyTargetTouchability();
         if (running) handler.postDelayed(tapLoop, 150L);
     }
 
-    private void performTargetTap() {
-        if (target == null || targetParams == null || windowManager == null) return;
+    private void performTargetTap(boolean manual) {
+        if (target == null || targetParams == null || windowManager == null || tapInProgress) return;
 
-        // Use the actual on-screen position of the target, not LayoutParams coordinates.
         int[] location = new int[2];
         target.getLocationOnScreen(location);
         final float x = location[0] + target.getWidth() / 2f;
         final float y = location[1] + target.getHeight() / 2f;
-        final boolean shouldShowAfter = targetVisible;
+        tapInProgress = true;
 
-        // Make the overlay fully non-touchable while the injected touch happens.
-        final int oldFlags = targetParams.flags;
-        targetParams.flags = oldFlags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        target.setAlpha(0f);
+        // Keep the target visible and pass-through. No fading/hiding = much smoother.
+        targetParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
 
-        handler.postDelayed(() -> {
-            Path path = new Path();
-            path.moveTo(x, y);
-            GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0L, 100L);
-            GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
+        Path path = new Path();
+        path.moveTo(x, y);
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0L, 30L);
+        GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
 
-            boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
-                @Override public void onCompleted(GestureDescription g) {
-                    restoreTargetAfterTap(oldFlags, shouldShowAfter);
-                }
-
-                @Override public void onCancelled(GestureDescription g) {
-                    restoreTargetAfterTap(oldFlags, shouldShowAfter);
-                }
-            }, null);
-
-            if (!accepted) restoreTargetAfterTap(oldFlags, shouldShowAfter);
-        }, 80L);
+        boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
+            @Override public void onCompleted(GestureDescription g) { finishTap(manual); }
+            @Override public void onCancelled(GestureDescription g) { finishTap(manual); }
+        }, null);
+        if (!accepted) finishTap(manual);
     }
 
-    private void restoreTargetAfterTap(int oldFlags, boolean shouldShow) {
-        handler.postDelayed(() -> {
-            if (target == null || targetParams == null) return;
-            targetParams.flags = oldFlags;
-            target.setAlpha(shouldShow ? 0.9f : 0f);
-            target.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
-            try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
-        }, 40L);
+    private void finishTap(boolean manual) {
+        tapInProgress = false;
+        if (manual && !running) applyTargetTouchability();
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
@@ -289,9 +295,7 @@ public class TapAccessibilityService extends AccessibilityService {
         super.onDestroy();
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     private class DragTouchListener implements View.OnTouchListener {
         private final View movedView;
