@@ -27,12 +27,18 @@ jobs:
         working-directory: jump-tapper
         run: gradle assembleRelease
 
-      - name: Rename APK
-        run: cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk JumpTapper_v1.5_unsigned.apk
+      - name: Package unsigned APK and apksigner tool
+        run: |
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.5_unsigned.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          APKSIGNER_DIR=$(dirname "$APKSIGNER")
+          cp "$APKSIGNER" sign-bundle/apksigner
+          cp "$APKSIGNER_DIR/lib/apksigner.jar" sign-bundle/apksigner.jar
 
-      - name: Upload APK
+      - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.5_UNSIGNED_APK
-          path: JumpTapper_v1.5_unsigned.apk
+          name: JumpTapper_v1.5_SIGNING_BUNDLE
+          path: sign-bundle
           if-no-files-found: error
