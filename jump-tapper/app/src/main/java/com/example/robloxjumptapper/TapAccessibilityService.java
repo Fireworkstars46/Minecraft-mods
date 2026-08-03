@@ -95,20 +95,20 @@ public class TapAccessibilityService extends AccessibilityService {
         target.setTextColor(Color.WHITE);
         target.setTypeface(Typeface.DEFAULT_BOLD);
         target.setGravity(Gravity.CENTER);
-        // Mostly transparent ring so the real button underneath stays visible.
-        target.setBackground(circleBackground(0x221976D2, 0xDD42A5F5));
-        target.setAlpha(1f);
+        target.setBackground(circleBackground(0x161976D2, 0xCC42A5F5));
+        target.setAlpha(0.9f);
 
         int size = dp(targetSizeDp);
         targetParams = new WindowManager.LayoutParams(size, size,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         targetParams.gravity = Gravity.TOP | Gravity.START;
         SharedPreferences p = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
         targetParams.x = p.getInt("target_x", dp(250));
         targetParams.y = p.getInt("target_y", dp(650));
-        target.setOnTouchListener(new DragTouchListener(target, targetParams, "target_x", "target_y"));
         windowManager.addView(target, targetParams);
     }
 
@@ -126,22 +126,31 @@ public class TapAccessibilityService extends AccessibilityService {
         dragHandle.setTextColor(Color.WHITE);
         dragHandle.setGravity(Gravity.CENTER);
         dragHandle.setBackgroundColor(0xFF3C4043);
-        control.addView(dragHandle, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
+        control.addView(dragHandle, new LinearLayout.LayoutParams(scaled(42), scaled(46)));
 
         startStop = new Button(this);
         startStop.setText(running ? "STOP" : "START");
         startStop.setOnClickListener(v -> toggleRunning());
-        control.addView(startStop, new LinearLayout.LayoutParams(scaled(84), scaled(46)));
+        control.addView(startStop, new LinearLayout.LayoutParams(scaled(78), scaled(46)));
 
         moveButton = new Button(this);
         moveButton.setText(moveMode ? "LOCK" : "MOVE");
         moveButton.setOnClickListener(v -> setMoveMode(!moveMode));
-        control.addView(moveButton, new LinearLayout.LayoutParams(scaled(66), scaled(46)));
+        control.addView(moveButton, new LinearLayout.LayoutParams(scaled(62), scaled(46)));
+
+        TextView targetMover = new TextView(this);
+        targetMover.setText("◎");
+        targetMover.setTextColor(Color.WHITE);
+        targetMover.setTextSize(20);
+        targetMover.setGravity(Gravity.CENTER);
+        targetMover.setBackgroundColor(0xFF3C4043);
+        targetMover.setOnTouchListener(new TargetMoveTouchListener());
+        control.addView(targetMover, new LinearLayout.LayoutParams(scaled(44), scaled(46)));
 
         Button tapNow = new Button(this);
         tapNow.setText("TAP");
         tapNow.setOnClickListener(v -> performTargetTap(true));
-        control.addView(tapNow, new LinearLayout.LayoutParams(scaled(58), scaled(46)));
+        control.addView(tapNow, new LinearLayout.LayoutParams(scaled(54), scaled(46)));
 
         Button targetToggle = new Button(this);
         targetToggle.setText("J");
@@ -150,12 +159,12 @@ public class TapAccessibilityService extends AccessibilityService {
             getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putBoolean("target_visible", targetVisible).apply();
             if (target != null) target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
         });
-        control.addView(targetToggle, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
+        control.addView(targetToggle, new LinearLayout.LayoutParams(scaled(42), scaled(46)));
 
         Button close = new Button(this);
         close.setText("×");
         close.setOnClickListener(v -> hideControls());
-        control.addView(close, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
+        control.addView(close, new LinearLayout.LayoutParams(scaled(42), scaled(46)));
 
         controlParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -215,7 +224,8 @@ public class TapAccessibilityService extends AccessibilityService {
             targetParams.height = size;
             target.setTextSize(Math.max(12, targetSizeDp / 3f));
             target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
-            applyTargetTouchability();
+            targetParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
         }
         if (control != null) {
             try { windowManager.removeView(control); } catch (Exception ignored) { }
@@ -228,17 +238,9 @@ public class TapAccessibilityService extends AccessibilityService {
         if (restoreBubble != null) restoreBubble.setVisibility(controlVisible ? View.GONE : View.VISIBLE);
     }
 
-    private void applyTargetTouchability() {
-        if (target == null || targetParams == null || windowManager == null) return;
-        if (moveMode && !running) targetParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        else targetParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
-    }
-
     private void setMoveMode(boolean enabled) {
         moveMode = enabled;
         if (moveButton != null) moveButton.setText(moveMode ? "LOCK" : "MOVE");
-        applyTargetTouchability();
     }
 
     private void toggleRunning() {
@@ -246,38 +248,27 @@ public class TapAccessibilityService extends AccessibilityService {
         tapInProgress = false;
         if (startStop != null) startStop.setText(running ? "STOP" : "START");
         handler.removeCallbacks(tapLoop);
-        applyTargetTouchability();
         if (running) handler.postDelayed(tapLoop, 150L);
     }
 
     private void performTargetTap(boolean manual) {
         if (target == null || targetParams == null || windowManager == null || tapInProgress) return;
-
         int[] location = new int[2];
         target.getLocationOnScreen(location);
         final float x = location[0] + target.getWidth() / 2f;
         final float y = location[1] + target.getHeight() / 2f;
         tapInProgress = true;
 
-        // Keep the target visible and pass-through. No fading/hiding = much smoother.
-        targetParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
-
         Path path = new Path();
         path.moveTo(x, y);
-        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0L, 30L);
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0L, 10L);
         GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
 
         boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
-            @Override public void onCompleted(GestureDescription g) { finishTap(manual); }
-            @Override public void onCancelled(GestureDescription g) { finishTap(manual); }
+            @Override public void onCompleted(GestureDescription g) { tapInProgress = false; }
+            @Override public void onCancelled(GestureDescription g) { tapInProgress = false; }
         }, null);
-        if (!accepted) finishTap(manual);
-    }
-
-    private void finishTap(boolean manual) {
-        tapInProgress = false;
-        if (manual && !running) applyTargetTouchability();
+        if (!accepted) tapInProgress = false;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
@@ -328,6 +319,34 @@ public class TapAccessibilityService extends AccessibilityService {
                 case MotionEvent.ACTION_CANCEL:
                     getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit()
                             .putInt(xKey, params.x).putInt(yKey, params.y).apply();
+                    return true;
+            }
+            return true;
+        }
+    }
+
+    private class TargetMoveTouchListener implements View.OnTouchListener {
+        private int startX, startY;
+        private float downX, downY;
+
+        @Override public boolean onTouch(View v, MotionEvent event) {
+            if (!moveMode || running || targetParams == null || target == null) return true;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startX = targetParams.x;
+                    startY = targetParams.y;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    targetParams.x = startX + Math.round(event.getRawX() - downX);
+                    targetParams.y = startY + Math.round(event.getRawY() - downY);
+                    try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit()
+                            .putInt("target_x", targetParams.x).putInt("target_y", targetParams.y).apply();
                     return true;
             }
             return true;
