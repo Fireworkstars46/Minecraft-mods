@@ -41,7 +41,7 @@ public class TapAccessibilityService extends AccessibilityService {
             if (!robloxOnly || "com.roblox.client".equals(currentPackage)) {
                 performTargetTap();
             }
-            handler.postDelayed(this, intervalMs);
+            handler.postDelayed(this, Math.max(1L, intervalMs));
         }
     };
 
@@ -72,9 +72,7 @@ public class TapAccessibilityService extends AccessibilityService {
 
     private void loadSettings() {
         SharedPreferences p = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
-        int min = p.getInt("minutes", 0);
-        int sec = p.getInt("seconds", 30);
-        intervalMs = Math.max(1000L, ((long) min * 60L + sec) * 1000L);
+        intervalMs = Math.max(1L, p.getLong("interval_ms", 30000L));
         robloxOnly = p.getBoolean("roblox_only", true);
     }
 
@@ -162,19 +160,17 @@ public class TapAccessibilityService extends AccessibilityService {
             Path path = new Path();
             path.moveTo(x, y);
             GestureDescription.StrokeDescription stroke =
-                    new GestureDescription.StrokeDescription(path, 0, 60);
+                    new GestureDescription.StrokeDescription(path, 0, 1);
             GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
             dispatchGesture(gesture, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription gestureDescription) {
-                    handler.postDelayed(() -> {
-                        if (target != null) target.setVisibility(View.VISIBLE);
-                    }, 80);
+                    if (target != null) target.setVisibility(View.VISIBLE);
                 }
                 @Override public void onCancelled(GestureDescription gestureDescription) {
                     if (target != null) target.setVisibility(View.VISIBLE);
                 }
             }, null);
-        }, 45);
+        }, 1);
     }
 
     @Override
