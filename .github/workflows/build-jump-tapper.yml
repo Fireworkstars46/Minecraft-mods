@@ -23,16 +23,16 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
+      - name: Build unsigned release APK
         working-directory: jump-tapper
-        run: gradle assembleDebug
+        run: gradle assembleRelease
 
       - name: Rename APK
-        run: cp jump-tapper/app/build/outputs/apk/debug/app-debug.apk JumpTapper_v1.4.apk
+        run: cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk JumpTapper_v1.5_unsigned.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.4_APK
-          path: JumpTapper_v1.4.apk
+          name: JumpTapper_v1.5_UNSIGNED_APK
+          path: JumpTapper_v1.5_unsigned.apk
           if-no-files-found: error
