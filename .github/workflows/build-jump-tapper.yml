@@ -26,7 +26,7 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.10_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.11_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -34,6 +34,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.10_SIGNING_BUNDLE
+          name: JumpTapper_v1.11_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
