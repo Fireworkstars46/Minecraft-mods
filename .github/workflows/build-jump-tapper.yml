@@ -28,11 +28,11 @@ jobs:
         run: gradle assembleDebug
 
       - name: Rename APK
-        run: cp jump-tapper/app/build/outputs/apk/debug/app-debug.apk JumpTapper_v1.1.apk
+        run: cp jump-tapper/app/build/outputs/apk/debug/app-debug.apk JumpTapper_v1.2.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.1_APK
-          path: JumpTapper_v1.1.apk
+          name: JumpTapper_v1.2_APK
+          path: JumpTapper_v1.2.apk
           if-no-files-found: error
