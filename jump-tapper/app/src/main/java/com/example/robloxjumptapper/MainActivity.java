@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper v1.4");
+        title.setText("Jump Tapper v1.5");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
