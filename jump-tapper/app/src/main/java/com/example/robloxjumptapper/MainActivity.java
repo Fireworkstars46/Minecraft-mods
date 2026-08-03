@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
     private EditText targetSizeField, controlScaleField;
     private LinearLayout splitFieldsRow;
     private RadioButton splitMode, millisMode;
-    private CheckBox robloxOnly, showTarget, showControls;
+    private CheckBox showTarget, showControls;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
         TextView title = new TextView(this);
-        title.setText("Jump Tapper v1.6");
+        title.setText("Jump Tapper v1.8");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
@@ -48,8 +48,7 @@ public class MainActivity extends Activity {
         accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         root.addView(accessibility);
 
-        TextView intervalLabel = heading("Tap interval");
-        root.addView(intervalLabel);
+        root.addView(heading("Tap interval"));
 
         RadioGroup modeGroup = new RadioGroup(this);
         modeGroup.setOrientation(RadioGroup.HORIZONTAL);
@@ -104,7 +103,7 @@ public class MainActivity extends Activity {
         root.addView(sizeRow);
 
         showTarget = new CheckBox(this);
-        showTarget.setText("Show circular JUMP target");
+        showTarget.setText("Show circular target");
         showTarget.setChecked(prefs.getBoolean("target_visible", true));
         root.addView(showTarget);
 
@@ -120,16 +119,11 @@ public class MainActivity extends Activity {
         });
         root.addView(showAll);
 
-        TextView restoreNote = new TextView(this);
-        restoreNote.setText("If you hide the controls, a small + bubble stays on-screen. Tap it to bring the controls back.");
-        restoreNote.setTextSize(13);
-        restoreNote.setPadding(0, dp(8), 0, dp(8));
-        root.addView(restoreNote);
-
-        robloxOnly = new CheckBox(this);
-        robloxOnly.setText("Only tap while Roblox is the foreground app");
-        robloxOnly.setChecked(prefs.getBoolean("roblox_only", true));
-        root.addView(robloxOnly);
+        TextView note = new TextView(this);
+        note.setText("Use LOCK/MOVE on the floating bar. MOVE lets you drag the target. START automatically makes the target pass-through so it does not block the real button underneath.");
+        note.setTextSize(13);
+        note.setPadding(0, dp(8), 0, dp(8));
+        root.addView(note);
 
         Button save = new Button(this);
         save.setText("Save Settings");
@@ -188,8 +182,8 @@ public class MainActivity extends Activity {
 
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putLong("interval_ms", interval).putBoolean("millis_mode", millisMode.isChecked())
-                .putBoolean("roblox_only", robloxOnly.isChecked()).putInt("target_size_dp", targetSize)
-                .putInt("control_scale", controlScale).putBoolean("target_visible", showTarget.isChecked())
+                .putInt("target_size_dp", targetSize).putInt("control_scale", controlScale)
+                .putBoolean("target_visible", showTarget.isChecked())
                 .putBoolean("control_visible", showControls.isChecked()).apply();
         Intent i = new Intent(ACTION_RELOAD); i.setPackage(getPackageName()); sendBroadcast(i);
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
