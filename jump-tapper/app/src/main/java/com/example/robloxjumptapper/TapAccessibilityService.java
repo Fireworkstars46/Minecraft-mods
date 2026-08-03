@@ -28,7 +28,8 @@ public class TapAccessibilityService extends AccessibilityService {
     private WindowManager windowManager;
     private TextView target;
     private LinearLayout control;
-    private WindowManager.LayoutParams targetParams, controlParams;
+    private TextView restoreBubble;
+    private WindowManager.LayoutParams targetParams, controlParams, restoreParams;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running = false;
     private String currentPackage = "";
@@ -50,7 +51,10 @@ public class TapAccessibilityService extends AccessibilityService {
         @Override public void onReceive(Context context, Intent intent) {
             loadSettings();
             applyOverlaySettings();
-            if (running) { handler.removeCallbacks(tapLoop); handler.post(tapLoop); }
+            if (running) {
+                handler.removeCallbacks(tapLoop);
+                handler.post(tapLoop);
+            }
         }
     };
 
@@ -60,6 +64,7 @@ public class TapAccessibilityService extends AccessibilityService {
         loadSettings();
         createTarget();
         createControl();
+        createRestoreBubble();
         applyOverlaySettings();
         IntentFilter filter = new IntentFilter(MainActivity.ACTION_RELOAD);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(reloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -76,10 +81,10 @@ public class TapAccessibilityService extends AccessibilityService {
         controlVisible = p.getBoolean("control_visible", true);
     }
 
-    private GradientDrawable circleBackground() {
+    private GradientDrawable circleBackground(int color) {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
-        d.setColor(0xCC1976D2);
+        d.setColor(color);
         d.setStroke(dp(2), 0xFFFFFFFF);
         return d;
     }
@@ -91,7 +96,7 @@ public class TapAccessibilityService extends AccessibilityService {
         target.setTextColor(Color.WHITE);
         target.setTypeface(Typeface.DEFAULT_BOLD);
         target.setGravity(Gravity.CENTER);
-        target.setBackground(circleBackground());
+        target.setBackground(circleBackground(0xCC1976D2));
         target.setAlpha(0.9f);
 
         int size = dp(targetSizeDp);
@@ -107,7 +112,9 @@ public class TapAccessibilityService extends AccessibilityService {
         windowManager.addView(target, targetParams);
     }
 
-    private int scaled(int dp) { return this.dp(Math.max(1, Math.round(dp * controlScale / 100f))); }
+    private int scaled(int value) {
+        return dp(Math.max(1, Math.round(value * controlScale / 100f)));
+    }
 
     private void createControl() {
         if (control != null) return;
@@ -117,11 +124,15 @@ public class TapAccessibilityService extends AccessibilityService {
         control.setBackgroundColor(0xDD202124);
 
         TextView dragHandle = new TextView(this);
-        dragHandle.setText("≡"); dragHandle.setTextColor(Color.WHITE); dragHandle.setGravity(Gravity.CENTER); dragHandle.setBackgroundColor(0xFF3C4043);
+        dragHandle.setText("≡");
+        dragHandle.setTextColor(Color.WHITE);
+        dragHandle.setGravity(Gravity.CENTER);
+        dragHandle.setBackgroundColor(0xFF3C4043);
         control.addView(dragHandle, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
 
         startStop = new Button(this);
-        startStop.setText("START"); startStop.setOnClickListener(v -> toggleRunning());
+        startStop.setText(running ? "STOP" : "START");
+        startStop.setOnClickListener(v -> toggleRunning());
         control.addView(startStop, new LinearLayout.LayoutParams(scaled(84), scaled(46)));
 
         Button targetToggle = new Button(this);
@@ -129,20 +140,18 @@ public class TapAccessibilityService extends AccessibilityService {
         targetToggle.setOnClickListener(v -> {
             targetVisible = !targetVisible;
             getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putBoolean("target_visible", targetVisible).apply();
-            target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
+            if (target != null) target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
         });
         control.addView(targetToggle, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
 
         Button close = new Button(this);
         close.setText("×");
-        close.setOnClickListener(v -> {
-            controlVisible = false;
-            getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putBoolean("control_visible", false).apply();
-            control.setVisibility(View.GONE);
-        });
+        close.setOnClickListener(v -> hideControls());
         control.addView(close, new LinearLayout.LayoutParams(scaled(46), scaled(46)));
 
-        controlParams = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+        controlParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -154,76 +163,186 @@ public class TapAccessibilityService extends AccessibilityService {
         windowManager.addView(control, controlParams);
     }
 
+    private void createRestoreBubble() {
+        if (restoreBubble != null) return;
+        restoreBubble = new TextView(this);
+        restoreBubble.setText("+");
+        restoreBubble.setTextColor(Color.WHITE);
+        restoreBubble.setTextSize(22);
+        restoreBubble.setGravity(Gravity.CENTER);
+        restoreBubble.setTypeface(Typeface.DEFAULT_BOLD);
+        restoreBubble.setBackground(circleBackground(0xDD3C4043));
+        restoreBubble.setOnClickListener(v -> showControls());
+
+        int size = dp(44);
+        restoreParams = new WindowManager.LayoutParams(size, size,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        restoreParams.gravity = Gravity.TOP | Gravity.START;
+        SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
+        restoreParams.x = prefs.getInt("restore_x", dp(8));
+        restoreParams.y = prefs.getInt("restore_y", dp(180));
+        restoreBubble.setOnTouchListener(new BubbleTouchListener());
+        windowManager.addView(restoreBubble, restoreParams);
+    }
+
+    private void hideControls() {
+        controlVisible = false;
+        getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putBoolean("control_visible", false).apply();
+        if (control != null) control.setVisibility(View.GONE);
+        if (restoreBubble != null) restoreBubble.setVisibility(View.VISIBLE);
+    }
+
+    private void showControls() {
+        controlVisible = true;
+        getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putBoolean("control_visible", true).apply();
+        if (control != null) control.setVisibility(View.VISIBLE);
+        if (restoreBubble != null) restoreBubble.setVisibility(View.GONE);
+    }
+
     private void applyOverlaySettings() {
         if (target != null && targetParams != null) {
             int size = dp(targetSizeDp);
-            targetParams.width = size; targetParams.height = size;
+            targetParams.width = size;
+            targetParams.height = size;
             target.setTextSize(Math.max(8, targetSizeDp / 5f));
             target.setVisibility(targetVisible ? View.VISIBLE : View.GONE);
             try { windowManager.updateViewLayout(target, targetParams); } catch (Exception ignored) { }
         }
         if (control != null) {
+            try { windowManager.removeView(control); } catch (Exception ignored) { }
+            control = null;
+            startStop = null;
+            createControl();
             control.setVisibility(controlVisible ? View.VISIBLE : View.GONE);
-            if (controlVisible) {
-                try { windowManager.removeView(control); } catch (Exception ignored) { }
-                control = null; startStop = null; createControl();
-            }
         }
+        if (restoreBubble != null) restoreBubble.setVisibility(controlVisible ? View.GONE : View.VISIBLE);
     }
 
     private void toggleRunning() {
         running = !running;
-        if (running) { startStop.setText("STOP"); handler.removeCallbacks(tapLoop); handler.post(tapLoop); }
-        else { startStop.setText("START"); handler.removeCallbacks(tapLoop); }
+        if (startStop != null) startStop.setText(running ? "STOP" : "START");
+        handler.removeCallbacks(tapLoop);
+        if (running) {
+            if ("".equals(currentPackage)) currentPackage = "com.roblox.client";
+            handler.postDelayed(tapLoop, 150L);
+        }
     }
 
     private void performTargetTap() {
-        if (target == null || !targetVisible || target.getVisibility() != View.VISIBLE) return;
-        final float x = targetParams.x + target.getWidth() / 2f;
-        final float y = targetParams.y + target.getHeight() / 2f;
-        target.setVisibility(View.INVISIBLE);
+        if (target == null || targetParams == null) return;
+        final float x = targetParams.x + targetParams.width / 2f;
+        final float y = targetParams.y + targetParams.height / 2f;
+        final boolean wasVisible = targetVisible && target.getVisibility() == View.VISIBLE;
+        if (wasVisible) target.setVisibility(View.INVISIBLE);
+
         handler.postDelayed(() -> {
-            Path path = new Path(); path.moveTo(x, y);
-            GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 1);
+            Path path = new Path();
+            path.moveTo(x, y);
+            GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 60);
             GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
             dispatchGesture(gesture, new GestureResultCallback() {
-                @Override public void onCompleted(GestureDescription g) { if (target != null && targetVisible) target.setVisibility(View.VISIBLE); }
-                @Override public void onCancelled(GestureDescription g) { if (target != null && targetVisible) target.setVisibility(View.VISIBLE); }
+                @Override public void onCompleted(GestureDescription g) {
+                    if (target != null && targetVisible) target.setVisibility(View.VISIBLE);
+                }
+                @Override public void onCancelled(GestureDescription g) {
+                    if (target != null && targetVisible) target.setVisibility(View.VISIBLE);
+                }
             }, null);
-        }, 1);
+        }, 35L);
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) { if (event.getPackageName() != null) currentPackage = event.getPackageName().toString(); }
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (event.getPackageName() == null) return;
+        String pkg = event.getPackageName().toString();
+        if (!getPackageName().equals(pkg)) currentPackage = pkg;
+    }
+
     @Override public void onInterrupt() { }
 
     @Override public void onDestroy() {
-        running = false; handler.removeCallbacksAndMessages(null);
+        running = false;
+        handler.removeCallbacksAndMessages(null);
         try { unregisterReceiver(reloadReceiver); } catch (Exception ignored) { }
         if (windowManager != null) {
             if (target != null) try { windowManager.removeView(target); } catch (Exception ignored) { }
             if (control != null) try { windowManager.removeView(control); } catch (Exception ignored) { }
+            if (restoreBubble != null) try { windowManager.removeView(restoreBubble); } catch (Exception ignored) { }
         }
         super.onDestroy();
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 
     private class DragTouchListener implements View.OnTouchListener {
-        private final View movedView; private final WindowManager.LayoutParams params; private final String xKey, yKey;
-        private int startX, startY; private float downX, downY;
+        private final View movedView;
+        private final WindowManager.LayoutParams params;
+        private final String xKey, yKey;
+        private int startX, startY;
+        private float downX, downY;
+
         DragTouchListener(View movedView, WindowManager.LayoutParams params, String xKey, String yKey) {
-            this.movedView = movedView; this.params = params; this.xKey = xKey; this.yKey = yKey;
+            this.movedView = movedView;
+            this.params = params;
+            this.xKey = xKey;
+            this.yKey = yKey;
         }
+
         @Override public boolean onTouch(View v, MotionEvent event) {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    startX = params.x; startY = params.y; downX = event.getRawX(); downY = event.getRawY(); return true;
+                    startX = params.x;
+                    startY = params.y;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    return true;
                 case MotionEvent.ACTION_MOVE:
-                    params.x = startX + Math.round(event.getRawX() - downX); params.y = startY + Math.round(event.getRawY() - downY);
-                    try { windowManager.updateViewLayout(movedView, params); } catch (Exception ignored) { } return true;
+                    params.x = startX + Math.round(event.getRawX() - downX);
+                    params.y = startY + Math.round(event.getRawY() - downY);
+                    try { windowManager.updateViewLayout(movedView, params); } catch (Exception ignored) { }
+                    return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit().putInt(xKey, params.x).putInt(yKey, params.y).apply(); return true;
+                    getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit()
+                            .putInt(xKey, params.x).putInt(yKey, params.y).apply();
+                    return true;
+            }
+            return true;
+        }
+    }
+
+    private class BubbleTouchListener implements View.OnTouchListener {
+        private int startX, startY;
+        private float downX, downY;
+        private boolean moved;
+
+        @Override public boolean onTouch(View v, MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startX = restoreParams.x;
+                    startY = restoreParams.y;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    moved = false;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx = event.getRawX() - downX;
+                    float dy = event.getRawY() - downY;
+                    if (Math.abs(dx) > dp(4) || Math.abs(dy) > dp(4)) moved = true;
+                    restoreParams.x = startX + Math.round(dx);
+                    restoreParams.y = startY + Math.round(dy);
+                    try { windowManager.updateViewLayout(restoreBubble, restoreParams); } catch (Exception ignored) { }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).edit()
+                            .putInt("restore_x", restoreParams.x).putInt("restore_y", restoreParams.y).apply();
+                    if (!moved) showControls();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    return true;
             }
             return true;
         }
