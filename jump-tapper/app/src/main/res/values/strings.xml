@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Jump Tapper</string>
+    <string name="accessibility_desc">Allows Jump Tapper to place a movable target and perform timed taps.</string>
+</resources>
