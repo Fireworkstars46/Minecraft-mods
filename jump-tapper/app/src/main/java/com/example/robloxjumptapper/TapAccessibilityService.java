@@ -12,6 +12,8 @@ import android.widget.*;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class TapAccessibilityService extends AccessibilityService {
     private WindowManager wm;
@@ -19,6 +21,9 @@ public class TapAccessibilityService extends AccessibilityService {
     private LinearLayout control, buttons;
     private WindowManager.LayoutParams targetParams, controlParams;
     private final Handler h = new Handler(Looper.getMainLooper());
+    private final ExecutorService logIo = Executors.newSingleThreadExecutor();
+    private final StringBuilder logBuffer = new StringBuilder();
+    private boolean logFlushScheduled = false;
     private boolean running=false, tapInProgress=false, moveMode=true, targetVisible=true, controlVisible=true, collapsed=false, debug=true;
     private long intervalMs=30000L, seq=0, tapStart=0, nextTapUptime=0;
     private int targetSizeDp=58, controlScale=100;
@@ -33,6 +38,17 @@ public class TapAccessibilityService extends AccessibilityService {
         nextTapUptime += Math.max(1L,intervalMs);
         if(nextTapUptime<=now){long missed=((now-nextTapUptime)/Math.max(1L,intervalMs))+1L;nextTapUptime+=missed*Math.max(1L,intervalMs);log("SCHEDULE_CATCHUP skippedSlots="+missed);}
         h.postAtTime(this,nextTapUptime);
+    }};
+
+    private final Runnable flushLogsRunnable = new Runnable(){@Override public void run(){
+        final String batch;
+        synchronized(logBuffer){
+            batch=logBuffer.toString();
+            logBuffer.setLength(0);
+            logFlushScheduled=false;
+        }
+        if(batch.isEmpty())return;
+        logIo.execute(()->writeLogBatch(batch));
     }};
 
     private final BroadcastReceiver reload=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){load();log("SETTINGS_RELOAD intervalMs="+intervalMs+" debug="+debug);apply();if(running){h.removeCallbacks(loop);nextTapUptime=SystemClock.uptimeMillis();h.postAtTime(loop,nextTapUptime);}}};
@@ -52,15 +68,37 @@ public class TapAccessibilityService extends AccessibilityService {
     private void touchability(){if(target==null)return;if(moveMode&&!running)targetParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;else targetParams.flags|=WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}}
     private void setMove(boolean e){moveMode=e;if(moveButton!=null)moveButton.setText(moveMode?"LOCK":"MOVE");touchability();log("MOVE_MODE="+moveMode);}
 
-    private void toggle(){running=!running;tapInProgress=false;if(startStop!=null)startStop.setText(running?"STOP":"START");h.removeCallbacks(loop);touchability();log((running?"START":"STOP")+" intervalMs="+intervalMs);if(running){nextTapUptime=SystemClock.uptimeMillis();h.postAtTime(loop,nextTapUptime);}}
+    private void toggle(){running=!running;tapInProgress=false;if(startStop!=null)startStop.setText(running?"STOP":"START");h.removeCallbacks(loop);touchability();log((running?"START":"STOP")+" intervalMs="+intervalMs);if(running){nextTapUptime=SystemClock.uptimeMillis();h.postAtTime(loop,nextTapUptime);}else flushLogsSoon();}
 
-    private void performTargetTap(boolean manual){long n=++seq;if(target==null||wm==null){log("TAP_SKIP seq="+n+" reason=noTarget");return;}if(tapInProgress){log("TAP_SKIP seq="+n+" reason=inProgress");return;}int[] loc=new int[2];target.getLocationOnScreen(loc);float x=loc[0]+target.getWidth()/2f,y=loc[1]+target.getHeight()/2f;tapInProgress=true;tapStart=SystemClock.elapsedRealtime();targetParams.flags|=WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}log("TAP_REQUEST seq="+n+" manual="+manual+" x="+Math.round(x)+" y="+Math.round(y));Path p=new Path();p.moveTo(x,y);GestureDescription.StrokeDescription s=new GestureDescription.StrokeDescription(p,0L,30L);GestureDescription g=new GestureDescription.Builder().addStroke(s).build();boolean accepted=dispatchGesture(g,new GestureResultCallback(){@Override public void onCompleted(GestureDescription gg){finish(n,false);}@Override public void onCancelled(GestureDescription gg){finish(n,true);}},null);log("DISPATCH seq="+n+" accepted="+accepted);if(!accepted)finish(n,true);}
+    private void performTargetTap(boolean manual){
+        long n=++seq;
+        if(target==null||wm==null){log("TAP_SKIP seq="+n+" reason=noTarget");return;}
+        if(tapInProgress){log("TAP_SKIP seq="+n+" reason=inProgress");return;}
+        int[] loc=new int[2];target.getLocationOnScreen(loc);float x=loc[0]+target.getWidth()/2f,y=loc[1]+target.getHeight()/2f;
+        tapInProgress=true;tapStart=SystemClock.elapsedRealtime();
+        // While START is running the target is already touch-through. Avoid touching the overlay every tap.
+        if(!running){targetParams.flags|=WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}}
+        log("TAP_REQUEST seq="+n+" manual="+manual+" x="+Math.round(x)+" y="+Math.round(y));
+        Path p=new Path();p.moveTo(x,y);GestureDescription.StrokeDescription s=new GestureDescription.StrokeDescription(p,0L,30L);GestureDescription g=new GestureDescription.Builder().addStroke(s).build();
+        boolean accepted=dispatchGesture(g,new GestureResultCallback(){@Override public void onCompleted(GestureDescription gg){finish(n,false);}@Override public void onCancelled(GestureDescription gg){finish(n,true);}},null);
+        log("DISPATCH seq="+n+" accepted="+accepted);if(!accepted)finish(n,true);
+    }
     private void finish(long n,boolean cancelled){long d=Math.max(0L,SystemClock.elapsedRealtime()-tapStart);tapInProgress=false;log((cancelled?"TAP_CANCEL":"TAP_COMPLETE")+" seq="+n+" durationMs="+d);if(!running)touchability();}
-    private void log(String m){if(!debug)return;try{File f=new File(getFilesDir(),MainActivity.DEBUG_FILE);if(f.exists()&&f.length()>250000)f.delete();String ts=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",Locale.US).format(new Date());FileWriter w=new FileWriter(f,true);w.write(ts+" | "+m+"\n");w.close();}catch(Exception ignored){}}
+
+    private void log(String m){
+        if(!debug)return;
+        String ts=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",Locale.US).format(new Date());
+        synchronized(logBuffer){
+            logBuffer.append(ts).append(" | ").append(m).append('\n');
+            if(!logFlushScheduled){logFlushScheduled=true;h.postDelayed(flushLogsRunnable,1000L);}
+        }
+    }
+    private void flushLogsSoon(){synchronized(logBuffer){if(logBuffer.length()==0)return;if(logFlushScheduled)h.removeCallbacks(flushLogsRunnable);logFlushScheduled=true;h.postDelayed(flushLogsRunnable,20L);}}
+    private void writeLogBatch(String batch){try{File f=new File(getFilesDir(),MainActivity.DEBUG_FILE);if(f.exists()&&f.length()>250000)f.delete();FileWriter w=new FileWriter(f,true);w.write(batch);w.close();}catch(Exception ignored){}}
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e){}
-    @Override public void onInterrupt(){log("SERVICE_INTERRUPT");}
-    @Override public void onDestroy(){log("SERVICE_DESTROY");running=false;h.removeCallbacksAndMessages(null);try{unregisterReceiver(reload);}catch(Exception ignored){}if(wm!=null){if(target!=null)try{wm.removeView(target);}catch(Exception ignored){}if(control!=null)try{wm.removeView(control);}catch(Exception ignored){}}super.onDestroy();}
+    @Override public void onInterrupt(){log("SERVICE_INTERRUPT");flushLogsSoon();}
+    @Override public void onDestroy(){log("SERVICE_DESTROY");running=false;h.removeCallbacks(loop);flushLogsSoon();try{unregisterReceiver(reload);}catch(Exception ignored){}if(wm!=null){if(target!=null)try{wm.removeView(target);}catch(Exception ignored){}if(control!=null)try{wm.removeView(control);}catch(Exception ignored){}}logIo.shutdown();super.onDestroy();}
 
     private class DragListener implements View.OnTouchListener{final View v;final WindowManager.LayoutParams p;final String xk,yk;int sx,sy;float dx,dy;DragListener(View v,WindowManager.LayoutParams p,String xk,String yk){this.v=v;this.p=p;this.xk=xk;this.yk=yk;}public boolean onTouch(View q,MotionEvent e){switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:sx=p.x;sy=p.y;dx=e.getRawX();dy=e.getRawY();return true;case MotionEvent.ACTION_MOVE:p.x=sx+Math.round(e.getRawX()-dx);p.y=sy+Math.round(e.getRawY()-dy);try{wm.updateViewLayout(v,p);}catch(Exception ignored){}return true;case MotionEvent.ACTION_UP:case MotionEvent.ACTION_CANCEL:getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt(xk,p.x).putInt(yk,p.y).apply();return true;}return true;}}
     private class MenuListener implements View.OnTouchListener{int sx,sy;float dx,dy;long down;boolean drag;public boolean onTouch(View v,MotionEvent e){switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:sx=controlParams.x;sy=controlParams.y;dx=e.getRawX();dy=e.getRawY();down=SystemClock.elapsedRealtime();drag=false;return true;case MotionEvent.ACTION_MOVE:float mx=e.getRawX()-dx,my=e.getRawY()-dy;if(SystemClock.elapsedRealtime()-down>=300L&&(Math.abs(mx)>dp(3)||Math.abs(my)>dp(3)))drag=true;if(drag){controlParams.x=sx+Math.round(mx);controlParams.y=sy+Math.round(my);try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}return true;case MotionEvent.ACTION_UP:if(drag){getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt("control_x",controlParams.x).putInt("control_y",controlParams.y).apply();log("CONTROL_MOVED x="+controlParams.x+" y="+controlParams.y);}else setCollapsed(!collapsed,true);return true;case MotionEvent.ACTION_CANCEL:return true;}return true;}}
