@@ -1,6 +1,7 @@
 name: Build YouTube Volume Buttons v1.9
 
 on:
+  pull_request:
   push:
     branches:
       - youtube-volume-buttons-v19-build
