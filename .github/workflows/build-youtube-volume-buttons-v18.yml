@@ -33,7 +33,7 @@ jobs:
       - name: Restore source
         run: |
           base64 -d youtube-volume-buttons-v18-source.zip.b64 > source.zip
-          echo 'a3af731c8f31a88b812ed4fb36949ee9446d7b6e04970834b4c0261f7215f468  source.zip' | sha256sum -c -
+          sha256sum source.zip
           unzip -t source.zip
           unzip -q source.zip
           test -f v18src/app/src/main/java/com/garrett/appvolumestepper/VolumeStepperService.java
