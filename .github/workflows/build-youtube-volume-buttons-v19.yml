@@ -1,0 +1,43 @@
+name: Build YouTube Volume Buttons v1.9
+
+on:
+  push:
+    branches:
+      - youtube-volume-buttons-v19-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        working-directory: v19src
+        run: gradle --no-daemon assembleDebug
+
+      - name: Prepare APK
+        run: cp v19src/app/build/outputs/apk/debug/app-debug.apk YouTube-Volume-Buttons-v1.9.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTube-Volume-Buttons-v1.9
+          path: YouTube-Volume-Buttons-v1.9.apk
