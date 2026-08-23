@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YouTube Volume Buttons</string>
+    <string name="service_name">YouTube volume buttons</string>
+    <string name="service_description">Uses the physical volume buttons to change YouTube only when YouTube is actively playing.</string>
+</resources>
