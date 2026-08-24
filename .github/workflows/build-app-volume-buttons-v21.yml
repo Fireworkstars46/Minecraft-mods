@@ -36,25 +36,25 @@ jobs:
       - name: Restore source
         run: |
           base64 -d app-volume-buttons-v21-source.zip.b64 > source.zip
-          echo '07fcf53985da0e8e2a7da77da2ca73f740bb010159de7110a94c0d96f2f9bc79  source.zip' | sha256sum -c -
+          echo 'adc9e30ae8b4899828124bf067e7211012d6a49de97b985d92d156d7ed2b6e79  source.zip' | sha256sum -c -
           unzip -t source.zip
           unzip -q source.zip
           test -f v21src/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
 
-      - name: Build APK
+      - name: Build unsigned release APK
         working-directory: v21src
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleRelease
 
       - name: Prepare artifact
         run: |
-          cp v21src/app/build/outputs/apk/debug/app-debug.apk App-Volume-Buttons-v2.1-debug.apk
-          unzip -t App-Volume-Buttons-v2.1-debug.apk
-          sha256sum App-Volume-Buttons-v2.1-debug.apk > App-Volume-Buttons-v2.1-debug-checksum.txt
+          cp v21src/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.1-unsigned.apk
+          unzip -t App-Volume-Buttons-v2.1-unsigned.apk
+          sha256sum App-Volume-Buttons-v2.1-unsigned.apk > App-Volume-Buttons-v2.1-unsigned-checksum.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: App-Volume-Buttons-v2.1-debug
+          name: App-Volume-Buttons-v2.1-unsigned
           path: |
-            App-Volume-Buttons-v2.1-debug.apk
-            App-Volume-Buttons-v2.1-debug-checksum.txt
+            App-Volume-Buttons-v2.1-unsigned.apk
+            App-Volume-Buttons-v2.1-unsigned-checksum.txt
