@@ -1,12 +1,9 @@
 name: Build App Volume Buttons v2.1
 
 on:
-  push:
-    branches:
-      - app-volume-buttons-v21-build
   pull_request:
     paths:
-      - 'app-volume-buttons-v21-source.zip.b64'
+      - 'v21src/**'
       - '.github/workflows/build-app-volume-buttons-v21.yml'
 
 jobs:
@@ -33,13 +30,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Restore source
+      - name: Verify source
         run: |
-          base64 -d app-volume-buttons-v21-source.zip.b64 > source.zip
-          sha256sum source.zip
-          unzip -t source.zip
-          unzip -q source.zip
           test -f v21src/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
+          test -f v21src/app/src/main/java/com/garrett/appvolumestepper/SamsungAppVolumeManager.java
 
       - name: Build unsigned release APK
         working-directory: v21src
