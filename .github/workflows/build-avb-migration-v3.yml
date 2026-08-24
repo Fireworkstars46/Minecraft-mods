@@ -1,0 +1,340 @@
+name: Build App Volume Buttons Migration v3
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-avb-migration-v3.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create migration helper source
+        run: |
+          mkdir -p migration3/app/src/main/java/com/garrett/appvolumemigrator
+          mkdir -p migration3/app/src/main/res/values
+          cat > migration3/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = 'AppVolumeButtonsMigration3'
+          include ':app'
+          EOF
+          cat > migration3/build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.7.3' apply false }
+          EOF
+          cat > migration3/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+          cat > migration3/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.garrett.appvolumemigrator'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.garrett.appvolumemigrator'
+                  minSdk 33
+                  targetSdk 35
+                  versionCode 3
+                  versionName '3.0'
+              }
+              buildTypes { release { minifyEnabled false } }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_11
+                  targetCompatibility JavaVersion.VERSION_11
+              }
+          }
+          dependencies {
+              implementation 'dev.rikka.shizuku:api:13.1.5'
+              implementation 'dev.rikka.shizuku:provider:13.1.5'
+          }
+          EOF
+          cat > migration3/app/src/main/res/values/strings.xml <<'EOF'
+          <resources><string name="app_name">App Volume Buttons Update</string></resources>
+          EOF
+          cat > migration3/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <queries>
+                  <package android:name="moe.shizuku.privileged.api" />
+                  <package android:name="com.garrett.appvolumestepper" />
+              </queries>
+              <application android:allowBackup="false" android:label="@string/app_name" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity android:name=".MigrationActivity" android:exported="true" android:excludeFromRecents="true" />
+                  <activity-alias android:name=".LauncherAlias" android:enabled="true" android:exported="true" android:targetActivity=".MigrationActivity">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity-alias>
+                  <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:enabled="true" android:exported="true" android:multiprocess="false" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+              </application>
+          </manifest>
+          EOF
+          cat > migration3/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java <<'EOF'
+          package com.garrett.appvolumemigrator;
+
+          import android.app.Activity;
+          import android.content.ComponentName;
+          import android.content.ServiceConnection;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.IBinder;
+          import android.os.Looper;
+          import android.os.Parcel;
+          import android.view.Gravity;
+          import android.widget.LinearLayout;
+          import android.widget.ProgressBar;
+          import android.widget.TextView;
+          import java.io.InputStream;
+          import java.security.MessageDigest;
+          import rikka.shizuku.Shizuku;
+
+          public class MigrationActivity extends Activity {
+              private static final int REQUEST_SHIZUKU = 8843;
+              private static final int CHUNK_SIZE = 64 * 1024;
+              private static final String ASSET = "App-Volume-Buttons-v2.4.apk";
+              private static final String EXPECTED_SHA256 = "1b15425d563f053bde5c88316e192d7caff5b1f732a34d84289d5faef9d3baa6";
+              private TextView status;
+              private boolean started;
+              private int assetSize;
+              private final Shizuku.UserServiceArgs serviceArgs = new Shizuku.UserServiceArgs(new ComponentName("com.garrett.appvolumemigrator", ShellUserService.class.getName())).daemon(false).processNameSuffix("migration3").version(3);
+              private final ServiceConnection connection = new ServiceConnection() {
+                  @Override public void onServiceConnected(ComponentName name, IBinder service) { new Thread(() -> uploadAndMigrate(service), "MigrationRunner").start(); }
+                  @Override public void onServiceDisconnected(ComponentName name) { if (started) setStatus("Shizuku disconnected. Reopen the updater to retry."); }
+              };
+              private final Shizuku.OnRequestPermissionResultListener permissionListener = (requestCode, grantResult) -> {
+                  if (requestCode != REQUEST_SHIZUKU) return;
+                  if (grantResult == PackageManager.PERMISSION_GRANTED) bindAndMigrate();
+                  else { started = false; setStatus("Shizuku permission is required. Tap Open again and choose Allow."); }
+              };
+              @Override protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  buildUi();
+                  hideHelperLauncherIcon();
+                  Shizuku.addRequestPermissionResultListener(permissionListener);
+                  new Thread(() -> {
+                      try {
+                          setStatus("Checking replacement APK…");
+                          String sha = hashAsset();
+                          if (!EXPECTED_SHA256.equalsIgnoreCase(sha)) { setStatus("Safety check failed. Nothing was removed."); return; }
+                          runOnUiThread(() -> new Handler(Looper.getMainLooper()).postDelayed(this::start, 120));
+                      } catch (Throwable t) { setStatus("Could not verify the replacement APK. Nothing was removed."); }
+                  }, "MigrationPrecheck").start();
+              }
+              private void start() {
+                  if (!Shizuku.pingBinder()) { setStatus("Shizuku is not running. Start Shizuku, then reopen this updater."); return; }
+                  if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) bindAndMigrate();
+                  else {
+                      setStatus("Waiting for Shizuku permission…");
+                      try { Shizuku.requestPermission(REQUEST_SHIZUKU); }
+                      catch (Throwable t) { setStatus("Could not request Shizuku permission. Nothing was removed."); }
+                  }
+              }
+              private synchronized void bindAndMigrate() {
+                  if (started) return;
+                  started = true;
+                  setStatus("Connecting to Shizuku…");
+                  try { Shizuku.bindUserService(serviceArgs, connection); }
+                  catch (Throwable t) { started = false; setStatus("Could not connect to Shizuku. Nothing was removed."); }
+              }
+              private void uploadAndMigrate(IBinder service) {
+                  try {
+                      callSimple(service, ShellUserService.TX_BEGIN);
+                      int sent = 0;
+                      try (InputStream in = getAssets().open(ASSET)) {
+                          byte[] buffer = new byte[CHUNK_SIZE];
+                          int n;
+                          while ((n = in.read(buffer)) != -1) {
+                              byte[] chunk = new byte[n];
+                              System.arraycopy(buffer, 0, chunk, 0, n);
+                              sendChunk(service, chunk);
+                              sent += n;
+                              int percent = assetSize <= 0 ? 0 : Math.min(100, (int)((sent * 100L) / assetSize));
+                              setStatus("Preparing replacement… " + percent + "%");
+                          }
+                      }
+                      setStatus("Replacement ready. Switching apps…");
+                      Result result = commitMigration(service, EXPECTED_SHA256);
+                      if (result.ok) {
+                          setStatus("Done — returning to your Home screen…");
+                          new Handler(Looper.getMainLooper()).postDelayed(this::finishAndRemoveTask, 1200);
+                      } else {
+                          started = false;
+                          setStatus(result.message + "\nNothing else will be changed until you retry.");
+                      }
+                  } catch (Throwable t) { started = false; setStatus("Migration stopped safely: " + t.getClass().getSimpleName() + "."); }
+              }
+              private void callSimple(IBinder service, int code) throws Exception {
+                  Parcel data = Parcel.obtain(); Parcel reply = Parcel.obtain();
+                  try {
+                      if (!service.transact(code, data, reply, 0)) throw new IllegalStateException("Service rejected request");
+                      reply.readException();
+                      if (reply.readInt() != 1) throw new IllegalStateException(reply.readString());
+                  } finally { data.recycle(); reply.recycle(); }
+              }
+              private void sendChunk(IBinder service, byte[] chunk) throws Exception {
+                  Parcel data = Parcel.obtain(); Parcel reply = Parcel.obtain();
+                  try {
+                      data.writeByteArray(chunk);
+                      if (!service.transact(ShellUserService.TX_APPEND, data, reply, 0)) throw new IllegalStateException("Chunk rejected");
+                      reply.readException();
+                      if (reply.readInt() != 1) throw new IllegalStateException(reply.readString());
+                  } finally { data.recycle(); reply.recycle(); }
+              }
+              private Result commitMigration(IBinder service, String sha) throws Exception {
+                  Parcel data = Parcel.obtain(); Parcel reply = Parcel.obtain();
+                  try {
+                      data.writeString(sha);
+                      if (!service.transact(ShellUserService.TX_MIGRATE, data, reply, 0)) return new Result(false, "Shizuku did not accept the migration request.");
+                      reply.readException();
+                      boolean ok = reply.readInt() == 1;
+                      String message = reply.readString();
+                      return new Result(ok, message == null ? (ok ? "Success" : "Migration failed.") : message);
+                  } finally { data.recycle(); reply.recycle(); }
+              }
+              private String hashAsset() throws Exception {
+                  MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                  int total = 0;
+                  try (InputStream in = getAssets().open(ASSET)) {
+                      byte[] buffer = new byte[32768]; int n;
+                      while ((n = in.read(buffer)) != -1) { digest.update(buffer, 0, n); total += n; }
+                  }
+                  assetSize = total;
+                  StringBuilder out = new StringBuilder();
+                  for (byte b : digest.digest()) out.append(String.format("%02x", b & 0xff));
+                  return out.toString();
+              }
+              private void hideHelperLauncherIcon() {
+                  try {
+                      getPackageManager().setComponentEnabledSetting(new ComponentName(this, "com.garrett.appvolumemigrator.LauncherAlias"), PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                  } catch (Throwable ignored) { }
+              }
+              private void buildUi() {
+                  LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setGravity(Gravity.CENTER);
+                  int p = Math.round(28 * getResources().getDisplayMetrics().density); root.setPadding(p,p,p,p); root.addView(new ProgressBar(this));
+                  status = new TextView(this); status.setText("Preparing update…"); status.setTextSize(17); status.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1,-2); lp.topMargin = p/2; root.addView(status, lp); setContentView(root);
+              }
+              private void setStatus(String text) { runOnUiThread(() -> { if (status != null) status.setText(text); }); }
+              @Override protected void onDestroy() { Shizuku.removeRequestPermissionResultListener(permissionListener); super.onDestroy(); }
+              private static final class Result { final boolean ok; final String message; Result(boolean ok, String message) { this.ok=ok; this.message=message; } }
+          }
+          EOF
+          cat > migration3/app/src/main/java/com/garrett/appvolumemigrator/ShellUserService.java <<'EOF'
+          package com.garrett.appvolumemigrator;
+
+          import android.os.Binder;
+          import android.os.Parcel;
+          import android.os.RemoteException;
+          import java.io.ByteArrayOutputStream;
+          import java.io.File;
+          import java.io.FileInputStream;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.security.MessageDigest;
+
+          public class ShellUserService extends Binder {
+              public static final int TX_BEGIN=1, TX_APPEND=2, TX_MIGRATE=3;
+              private static final String FINAL_APK="/data/local/tmp/App-Volume-Buttons-v2.4.apk";
+              private static final String OLD_PACKAGE="com.garrett.appvolumestepper";
+              private static final String HELPER_PACKAGE="com.garrett.appvolumemigrator";
+              private static final String SAMSUNG_LAUNCHER="com.sec.android.app.launcher";
+              public ShellUserService() { }
+              @Override protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+                  try {
+                      if (code==TX_BEGIN) {
+                          File file=new File(FINAL_APK); if(file.exists()) file.delete();
+                          try(FileOutputStream out=new FileOutputStream(file,false)){out.flush();}
+                          run("chmod 0644 '"+FINAL_APK+"'"); ok(reply,"Ready"); return true;
+                      }
+                      if (code==TX_APPEND) {
+                          byte[] chunk=data.createByteArray();
+                          if(chunk==null||chunk.length==0||chunk.length>128*1024){fail(reply,"Invalid transfer chunk.");return true;}
+                          try(FileOutputStream out=new FileOutputStream(FINAL_APK,true)){out.write(chunk);out.flush();}
+                          ok(reply,"Chunk written"); return true;
+                      }
+                      if (code==TX_MIGRATE) {
+                          Result result=migrate(data.readString());
+                          reply.writeNoException(); reply.writeInt(result.ok?1:0); reply.writeString(result.message); return true;
+                      }
+                  } catch(Throwable t) {
+                      reply.writeNoException(); reply.writeInt(0); reply.writeString(t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage())); return true;
+                  }
+                  return super.onTransact(code,data,reply,flags);
+              }
+              private Result migrate(String expectedSha) throws Exception {
+                  File apk=new File(FINAL_APK);
+                  if(!apk.isFile()||apk.length()<20000) return new Result(false,"Replacement APK was not transferred. Old app was not removed.");
+                  String actualSha=sha256(apk);
+                  if(expectedSha==null||!actualSha.equalsIgnoreCase(expectedSha)) return new Result(false,"Replacement APK failed verification. Old app was not removed.");
+                  Result direct=run("pm install -r '"+FINAL_APK+"'");
+                  if(direct.ok&&direct.message.contains("Success")) {
+                      run("rm -f '"+FINAL_APK+"'");
+                      run("am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1");
+                      cleanupHelperLater(); return new Result(true,"Updated normally.");
+                  }
+                  String lower=direct.message.toLowerCase();
+                  boolean signerMismatch=lower.contains("update_incompatible")||lower.contains("signatures do not match")||lower.contains("certificates")||lower.contains("signature");
+                  if(!signerMismatch) return new Result(false,"Safety stop before uninstall: "+clean(direct.message));
+                  run("am force-stop "+SAMSUNG_LAUNCHER+" >/dev/null 2>&1 || true");
+                  Result uninstall=run("pm uninstall "+OLD_PACKAGE);
+                  if(!uninstall.ok||!uninstall.message.contains("Success")) return new Result(false,"Old app removal failed: "+clean(uninstall.message));
+                  Result install=run("pm install '"+FINAL_APK+"'");
+                  if(!install.ok||!install.message.contains("Success")) return new Result(false,"Old app was removed, but replacement install failed: "+clean(install.message));
+                  Result verify=run("pm path "+OLD_PACKAGE);
+                  if(!verify.ok||!verify.message.contains("package:")) return new Result(false,"Replacement installed but package verification failed.");
+                  run("rm -f '"+FINAL_APK+"'");
+                  run("am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1");
+                  cleanupHelperLater(); return new Result(true,"Migration complete.");
+              }
+              private void cleanupHelperLater() {
+                  try { Runtime.getRuntime().exec(new String[]{"sh","-c","(sleep 4; pm uninstall "+HELPER_PACKAGE+" >/dev/null 2>&1) >/dev/null 2>&1 &"}); }
+                  catch(Throwable ignored) { }
+              }
+              private static void ok(Parcel reply,String message){reply.writeNoException();reply.writeInt(1);reply.writeString(message);}
+              private static void fail(Parcel reply,String message){reply.writeNoException();reply.writeInt(0);reply.writeString(message);}
+              private Result run(String command) throws Exception {
+                  Process process=Runtime.getRuntime().exec(new String[]{"sh","-c",command});
+                  String stdout=readAll(process.getInputStream()), stderr=readAll(process.getErrorStream()); int exit=process.waitFor();
+                  return new Result(exit==0,(stdout+"\n"+stderr).trim());
+              }
+              private static String sha256(File file) throws Exception {
+                  MessageDigest digest=MessageDigest.getInstance("SHA-256");
+                  try(InputStream in=new FileInputStream(file)){byte[] buffer=new byte[32768];int n;while((n=in.read(buffer))!=-1)digest.update(buffer,0,n);}
+                  StringBuilder out=new StringBuilder();for(byte b:digest.digest())out.append(String.format("%02x",b&0xff));return out.toString();
+              }
+              private static String clean(String s){if(s==null||s.trim().isEmpty())return "unknown error";s=s.replace('\n',' ').replace('\r',' ').trim();return s.length()>220?s.substring(0,220):s;}
+              private static String readAll(InputStream input) throws Exception {
+                  try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);return out.toString("UTF-8");}
+              }
+              private static final class Result { final boolean ok; final String message; Result(boolean ok,String message){this.ok=ok;this.message=message==null?"":message;} }
+          }
+          EOF
+      - name: Build helper
+        working-directory: migration3
+        run: gradle --no-daemon assembleRelease
+      - name: Collect unsigned helper
+        run: |
+          mkdir out
+          cp migration3/app/build/outputs/apk/release/app-release-unsigned.apk out/App-Volume-Buttons-Migration-v3-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avb-migration-v3-unsigned
+          path: out/
