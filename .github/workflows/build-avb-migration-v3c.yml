@@ -1,0 +1,68 @@
+name: Build App Volume Buttons Migration v3c
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-avb-migration-v3c.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Recreate and patch v3 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/build-avb-migration-v3.yml')
+          text = p.read_text()
+          start = "      - name: Create migration helper source\n        run: |\n"
+          end = "      - name: Build helper\n"
+          block = text.split(start, 1)[1].split(end, 1)[0]
+          lines = [line[10:] if line.startswith('          ') else line for line in block.splitlines()]
+          Path('/tmp/create-migration3.sh').write_text('\n'.join(lines) + '\n')
+          PY
+          bash /tmp/create-migration3.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          b = Path('migration3/app/build.gradle')
+          s = b.read_text().replace("applicationId 'com.garrett.appvolumemigrator'", "applicationId 'com.garrett.appvolumemigrator3'")
+          b.write_text(s)
+
+          m = Path('migration3/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java')
+          s = m.read_text()
+          s = s.replace('                  hideHelperLauncherIcon();\n', '')
+          s = s.replace('new ComponentName("com.garrett.appvolumemigrator", ShellUserService.class.getName())', 'new ComponentName("com.garrett.appvolumemigrator3", ShellUserService.class.getName())')
+          m.write_text(s)
+
+          sh = Path('migration3/app/src/main/java/com/garrett/appvolumemigrator/ShellUserService.java')
+          s = sh.read_text()
+          s = s.replace('private static final String HELPER_PACKAGE="com.garrett.appvolumemigrator";', 'private static final String HELPER_PACKAGE="com.garrett.appvolumemigrator3";\n              private static final String OLD_HELPER_PACKAGE="com.garrett.appvolumemigrator";')
+          old = '''              private void cleanupHelperLater() {\n                  try { Runtime.getRuntime().exec(new String[]{"sh","-c","(sleep 4; pm uninstall "+HELPER_PACKAGE+" >/dev/null 2>&1) >/dev/null 2>&1 &"}); }\n                  catch(Throwable ignored) { }\n              }'''
+          new = '''              private void cleanupHelperLater() {\n                  try { Runtime.getRuntime().exec(new String[]{"sh","-c","pm uninstall "+OLD_HELPER_PACKAGE+" >/dev/null 2>&1 || true"}).waitFor(); }\n                  catch(Throwable ignored) { }\n                  try { Runtime.getRuntime().exec(new String[]{"sh","-c","(sleep 4; pm uninstall "+HELPER_PACKAGE+" >/dev/null 2>&1) >/dev/null 2>&1 &"}); }\n                  catch(Throwable ignored) { }\n              }'''
+          if old not in s:
+              raise SystemExit('cleanupHelperLater block not found')
+          sh.write_text(s.replace(old, new))
+          PY
+      - name: Build helper
+        working-directory: migration3
+        run: gradle --no-daemon assembleRelease
+      - name: Collect unsigned helper
+        run: |
+          mkdir out
+          cp migration3/app/build/outputs/apk/release/app-release-unsigned.apk out/App-Volume-Buttons-Migration-v3c-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avb-migration-v3c-unsigned
+          path: out/
