@@ -3,7 +3,7 @@ name: Build App Volume Buttons v2.4 side-by-side
 on:
   pull_request:
     paths:
-      - 'v24fixchunks/**'
+      - 'v24chunks/**'
       - '.github/workflows/build-app-volume-buttons-v24-side.yml'
 
 jobs:
@@ -24,24 +24,35 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Restore source
+      - name: Restore and patch source
         run: |
-          cat v24fixchunks/00.txt v24fixchunks/01.txt v24fixchunks/02.txt v24fixchunks/03.txt v24fixchunks/04.txt v24fixchunks/05.txt > source.b64
+          cat v24chunks/00.txt v24chunks/01.txt v24chunks/02.txt v24chunks/03.txt v24chunks/04.txt > source.b64
           base64 -d source.b64 > source.zip
-          echo '51f900683b4082d75fec5d59ee9cbe2d774a2d2e71d7397db8ad4b0c3ae115a4  source.zip' | sha256sum -c -
+          echo '17b32b959cddc59252e741cee18473d65d1ad3355e8efbd73b0ecf7f1db1d6eb  source.zip' | sha256sum -c -
           unzip -t source.zip
           mkdir v24side
           unzip -q source.zip -d v24side
-          test -f v24side/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
-      - name: Build unsigned release APK
+          sed -i 's/import android.accessibilityservice.AccessibilityWindowInfo;/import android.view.accessibility.AccessibilityWindowInfo;/' v24side/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
+          grep -q "applicationId 'com.garrett.appvolumebuttons.v2'" v24side/app/build.gradle
+      - name: Build release APK
         working-directory: v24side
         run: gradle --no-daemon assembleRelease
-      - name: Prepare artifact
+      - name: Generate permanent side-by-side signing key and sign
         run: |
+          PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
+          printf '%s' "$PASS" > App-Volume-Buttons-v2-side-key-password.txt
+          keytool -genkeypair -v -keystore App-Volume-Buttons-v2-side.keystore -storepass "$PASS" -keypass "$PASS" -alias appvolbuttons -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=App Volume Buttons, OU=Personal Build, O=Garrett, C=US'
           cp v24side/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.4-side-unsigned.apk
-          unzip -t App-Volume-Buttons-v2.4-side-unsigned.apk
-      - name: Upload APK
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 App-Volume-Buttons-v2.4-side-unsigned.apk App-Volume-Buttons-v2.4-side-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks App-Volume-Buttons-v2-side.keystore --ks-key-alias appvolbuttons --ks-pass pass:"$PASS" --key-pass pass:"$PASS" --out App-Volume-Buttons-v2.4-side.apk App-Volume-Buttons-v2.4-side-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs App-Volume-Buttons-v2.4-side.apk
+          sha256sum App-Volume-Buttons-v2.4-side.apk > App-Volume-Buttons-v2.4-side-checksums.txt
+      - name: Upload APK and signing key
         uses: actions/upload-artifact@v4
         with:
-          name: App-Volume-Buttons-v2.4-side-unsigned
-          path: App-Volume-Buttons-v2.4-side-unsigned.apk
+          name: App-Volume-Buttons-v2.4-side
+          path: |
+            App-Volume-Buttons-v2.4-side.apk
+            App-Volume-Buttons-v2.4-side-checksums.txt
+            App-Volume-Buttons-v2-side.keystore
+            App-Volume-Buttons-v2-side-key-password.txt
