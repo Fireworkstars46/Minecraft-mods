@@ -1,0 +1,41 @@
+name: Build App Volume Buttons migration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-app-volume-buttons-migration.yml'
+      - 'migration-final-source.zip.b64'
+      - 'migration-helper/**'
+      - 'migration-final.apk.b64'
+
+jobs:
+  build-final:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Decode final source
+        run: |
+          mkdir finalsrc
+          base64 -d migration-final-source.zip.b64 > finalsrc.zip
+          unzip -q finalsrc.zip -d finalsrc
+      - name: Build final unsigned APK
+        working-directory: finalsrc
+        run: gradle --no-daemon assembleRelease
+      - name: Prepare final artifact
+        run: |
+          cp finalsrc/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.4-permanent-unsigned.apk
+          unzip -t App-Volume-Buttons-v2.4-permanent-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: App-Volume-Buttons-v2.4-permanent-unsigned
+          path: App-Volume-Buttons-v2.4-permanent-unsigned.apk
