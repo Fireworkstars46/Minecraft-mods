@@ -1,0 +1,43 @@
+name: Build App Volume Buttons v2.4 side-by-side
+
+on:
+  pull_request:
+    paths:
+      - 'v24-side-source.zip'
+      - '.github/workflows/build-app-volume-buttons-v24-side.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore source
+        run: |
+          mkdir v24side
+          unzip -q v24-side-source.zip -d v24side
+          test -f v24side/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
+      - name: Build unsigned release APK
+        working-directory: v24side
+        run: gradle --no-daemon assembleRelease
+      - name: Prepare artifact
+        run: |
+          cp v24side/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.4-side-unsigned.apk
+          unzip -t App-Volume-Buttons-v2.4-side-unsigned.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-Volume-Buttons-v2.4-side-unsigned
+          path: App-Volume-Buttons-v2.4-side-unsigned.apk
