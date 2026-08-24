@@ -1,0 +1,89 @@
+name: Build App Volume Buttons migration v1.1
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-app-volume-buttons-migration-v11.yml'
+
+jobs:
+  build-helper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Reassemble verified source
+        run: |
+          cat migration-helper-source-part02-fix0 migration-helper-source-part02-fix1 migration-helper-source-part02-fix2 migration-helper-source-part02-fix3 > migration-helper-source-part02.fixed
+          test "$(wc -c < migration-helper-source-part02.fixed)" = '7000'
+          echo 'ca8fada3112b8ef22d9a44b7e4ac2b673f50ef1de3d70bbbbd1b9c7170256ac0  migration-helper-source-part02.fixed' | sha256sum -c -
+          cat migration-helper-source-part00 migration-helper-source-part01 migration-helper-source-part02.fixed migration-helper-source-part03 migration-helper-source-part04 migration-helper-source-part05 migration-helper-source-part06 migration-helper-source-part07 migration-helper-source-part08 migration-helper-source-part09 migration-helper-source-part10 migration-helper-source-part11 migration-helper-source-part12 > migration-helper-source.zip.b64
+          base64 -d migration-helper-source.zip.b64 > migration-helper-source.zip
+          echo 'be09e5ccee93c8e0b2980f6bcf67df5d2496acbf2495f36c798cadcd14e25f5e  migration-helper-source.zip' | sha256sum -c -
+          mkdir helper
+          unzip -q migration-helper-source.zip -d helper
+          echo 'd8020053fb2acbaaa5168a589cc05e1656e4d420f4a468fe3dde42054db04bdb  helper/app/src/main/assets/App-Volume-Buttons-v2.4.apk' | sha256sum -c -
+
+      - name: Apply migration v1.1 fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          java = Path('helper/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java')
+          s = java.read_text()
+          s = s.replace('        hideHelperLauncherIcon();\n', '')
+          old = '                runShell("pm uninstall " + OLD_AND_NEW_PACKAGE + " >/dev/null 2>&1 || true");'
+          new = '''                ShellResult remove = runShell("pm uninstall " + OLD_AND_NEW_PACKAGE);
+                if (remove.exitCode != 0 || !remove.output.contains("Success")) {
+                    throw new IllegalStateException("Could not remove old app: " + remove.output);
+                }
+                ShellResult stillInstalled = runShell("pm path " + OLD_AND_NEW_PACKAGE);
+                if (stillInstalled.exitCode == 0 && stillInstalled.output.contains("package:")) {
+                    throw new IllegalStateException("Old app is still installed; replacement was not attempted.");
+                }'''
+          if old not in s:
+              raise SystemExit('Expected uninstall line not found')
+          s = s.replace(old, new)
+          java.write_text(s)
+
+          manifest = Path('helper/app/src/main/AndroidManifest.xml')
+          m = manifest.read_text()
+          m = m.replace('android:name=".LauncherAlias"', 'android:name=".LauncherAliasV2"')
+          manifest.write_text(m)
+
+          gradle = Path('helper/app/build.gradle')
+          g = gradle.read_text()
+          g = g.replace('versionCode 1', 'versionCode 2')
+          g = g.replace("versionName '1.0'", "versionName '1.1'")
+          gradle.write_text(g)
+          PY
+          grep -q 'LauncherAliasV2' helper/app/src/main/AndroidManifest.xml
+          grep -q 'versionCode 2' helper/app/build.gradle
+          ! grep -q 'hideHelperLauncherIcon();' helper/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java
+          grep -q 'Could not remove old app' helper/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java
+
+      - name: Build migration helper
+        working-directory: helper
+        run: gradle --no-daemon assembleRelease
+
+      - name: Prepare artifact
+        run: |
+          cp helper/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-Migration-v1.1-unsigned.apk
+          unzip -t App-Volume-Buttons-Migration-v1.1-unsigned.apk
+          sha256sum App-Volume-Buttons-Migration-v1.1-unsigned.apk > App-Volume-Buttons-Migration-v1.1-unsigned-checksum.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: App-Volume-Buttons-Migration-v1.1-unsigned
+          path: |
+            App-Volume-Buttons-Migration-v1.1-unsigned.apk
+            App-Volume-Buttons-Migration-v1.1-unsigned-checksum.txt
