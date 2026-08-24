@@ -42,6 +42,14 @@ jobs:
           s = s.replace("applicationId 'com.garrett.appvolumemigrator'", "applicationId 'com.garrett.appvolumemigrator3'")
           b.write_text(s)
 
+          # Because applicationId differs from the Java namespace, launcher/target Activity names
+          # must be fully qualified or Android will look in the wrong package at runtime.
+          manifest = Path('migration3/app/src/main/AndroidManifest.xml')
+          s = manifest.read_text()
+          s = s.replace('android:name=".MigrationActivity"', 'android:name="com.garrett.appvolumemigrator.MigrationActivity"')
+          s = s.replace('android:targetActivity=".MigrationActivity"', 'android:targetActivity="com.garrett.appvolumemigrator.MigrationActivity"')
+          manifest.write_text(s)
+
           # Keep the retry helper visible until migration succeeds; never launch Settings automatically.
           m = Path('migration3/app/src/main/java/com/garrett/appvolumemigrator/MigrationActivity.java')
           s = m.read_text()
