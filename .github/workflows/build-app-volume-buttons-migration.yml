@@ -25,6 +25,7 @@ jobs:
         run: |
           cat migration-helper-source-part* > migration-helper-source.zip.b64
           base64 -d migration-helper-source.zip.b64 > migration-helper-source.zip
+          echo 'be09e5ccee93c8e0b2980f6bcf67df5d2496acbf2495f36c798cadcd14e25f5e  migration-helper-source.zip' | sha256sum -c -
           mkdir helper
           unzip -q migration-helper-source.zip -d helper
           test -f helper/app/src/main/assets/App-Volume-Buttons-v2.4.apk
