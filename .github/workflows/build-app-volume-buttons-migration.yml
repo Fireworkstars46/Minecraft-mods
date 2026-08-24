@@ -21,6 +21,26 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Verify source chunks
+        run: |
+          wc -c migration-helper-source-part*
+          sha256sum migration-helper-source-part*
+          cat > expected-chunks.sha256 <<'EOF'
+          0f7067e2463f256c13e9f35a1709baa577a967ff6161a9749e6a63199b391f80  migration-helper-source-part00
+          5ee7bee8cbc39db13bf58bd49b5a48bf0c2f7c6d7fb62dc8c43eb4cb2ab8ab94  migration-helper-source-part01
+          ca8fada3112b8ef22d9a44b7e4ac2b673f50ef1de3d70bbbbd1b9c7170256ac0  migration-helper-source-part02
+          b415e7e3f592a2caddc19cfc2e1b484a0668f5600895849daa9266ab3b68e8bb  migration-helper-source-part03
+          9a548b676930c2a7475ff805f53fd2602392d50d98522847010b3bbc44602489  migration-helper-source-part04
+          0194c20e53b9f2bab8cb3a465f99aa681ed88d07a428d3fd4429d3472718b13b  migration-helper-source-part05
+          5e61996e5abdfb895b748fe2a0b1208b550b5b35fde6529312dd231ea003b1e0  migration-helper-source-part06
+          e2bb00dcb5ba84e7ab1167f61b1ecd6d47199abf2d1c5020d55704c9c4f87d1c  migration-helper-source-part07
+          3730a3475728e5df598054ccd2b797b9f32f09fe47f4d748a15170dccb934cf7  migration-helper-source-part08
+          9083cb059f53231588d8e43a37c3575e1a383393b43cb3e82365e3ea4c631307  migration-helper-source-part09
+          cf4201ec51707b8cfcbd89030f4d89355785305b4af6c0f628a8b84d7a9b3461  migration-helper-source-part10
+          ea8a3d8f895305eecb41e4a36255b76bbce8c7b386583ef231fdff15cf723db2  migration-helper-source-part11
+          0425fff313730cb9860d58c76039bfbf8ed91ae26bdf685aba1187c5e7d1091b  migration-helper-source-part12
+          EOF
+          sha256sum -c expected-chunks.sha256
       - name: Reassemble helper source
         run: |
           cat migration-helper-source-part* > migration-helper-source.zip.b64
