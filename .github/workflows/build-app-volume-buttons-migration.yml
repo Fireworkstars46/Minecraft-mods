@@ -21,14 +21,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify source chunks
+      - name: Verify and repair source chunks
         run: |
-          wc -c migration-helper-source-part*
-          sha256sum migration-helper-source-part*
-          cat > expected-chunks.sha256 <<'EOF'
+          echo '84ea14fb3f67f0fce2f1322e4db1c4ef00138a86e1de84348b1086f3d0de3e9f  migration-helper-source-part02-fix0' | sha256sum -c -
+          echo '2a77825616fa26a6b91a21d03c756f67ef8e279d8a4e66ae450a8db3ec003447  migration-helper-source-part02-fix1' | sha256sum -c -
+          echo 'ece194a402ec9c7220a863e6c2b0c0a70b344a25512613a29124f2470d15f772  migration-helper-source-part02-fix2' | sha256sum -c -
+          echo '2e333a54267967dcc93d21cc3b1516eecf4ebdf6ac893243577db151bb0baafa  migration-helper-source-part02-fix3' | sha256sum -c -
+          cat migration-helper-source-part02-fix0 migration-helper-source-part02-fix1 migration-helper-source-part02-fix2 migration-helper-source-part02-fix3 > migration-helper-source-part02.fixed
+          test "$(wc -c < migration-helper-source-part02.fixed)" = '7000'
+          echo 'ca8fada3112b8ef22d9a44b7e4ac2b673f50ef1de3d70bbbbd1b9c7170256ac0  migration-helper-source-part02.fixed' | sha256sum -c -
+          cat > expected-good-chunks.sha256 <<'EOF'
           0f7067e2463f256c13e9f35a1709baa577a967ff6161a9749e6a63199b391f80  migration-helper-source-part00
           5ee7bee8cbc39db13bf58bd49b5a48bf0c2f7c6d7fb62dc8c43eb4cb2ab8ab94  migration-helper-source-part01
-          ca8fada3112b8ef22d9a44b7e4ac2b673f50ef1de3d70bbbbd1b9c7170256ac0  migration-helper-source-part02
           b415e7e3f592a2caddc19cfc2e1b484a0668f5600895849daa9266ab3b68e8bb  migration-helper-source-part03
           9a548b676930c2a7475ff805f53fd2602392d50d98522847010b3bbc44602489  migration-helper-source-part04
           0194c20e53b9f2bab8cb3a465f99aa681ed88d07a428d3fd4429d3472718b13b  migration-helper-source-part05
@@ -40,15 +44,16 @@ jobs:
           ea8a3d8f895305eecb41e4a36255b76bbce8c7b386583ef231fdff15cf723db2  migration-helper-source-part11
           0425fff313730cb9860d58c76039bfbf8ed91ae26bdf685aba1187c5e7d1091b  migration-helper-source-part12
           EOF
-          sha256sum -c expected-chunks.sha256
+          sha256sum -c expected-good-chunks.sha256
       - name: Reassemble helper source
         run: |
-          cat migration-helper-source-part* > migration-helper-source.zip.b64
+          cat migration-helper-source-part00 migration-helper-source-part01 migration-helper-source-part02.fixed migration-helper-source-part03 migration-helper-source-part04 migration-helper-source-part05 migration-helper-source-part06 migration-helper-source-part07 migration-helper-source-part08 migration-helper-source-part09 migration-helper-source-part10 migration-helper-source-part11 migration-helper-source-part12 > migration-helper-source.zip.b64
           base64 -d migration-helper-source.zip.b64 > migration-helper-source.zip
           echo 'be09e5ccee93c8e0b2980f6bcf67df5d2496acbf2495f36c798cadcd14e25f5e  migration-helper-source.zip' | sha256sum -c -
           mkdir helper
           unzip -q migration-helper-source.zip -d helper
           test -f helper/app/src/main/assets/App-Volume-Buttons-v2.4.apk
+          echo 'd8020053fb2acbaaa5168a589cc05e1656e4d420f4a468fe3dde42054db04bdb  helper/app/src/main/assets/App-Volume-Buttons-v2.4.apk' | sha256sum -c -
       - name: Build migration helper
         working-directory: helper
         run: gradle --no-daemon assembleRelease
