@@ -36,7 +36,7 @@ jobs:
       - name: Restore source
         run: |
           base64 -d app-volume-buttons-v21-source.zip.b64 > source.zip
-          echo 'adc9e30ae8b4899828124bf067e7211012d6a49de97b985d92d156d7ed2b6e79  source.zip' | sha256sum -c -
+          sha256sum source.zip
           unzip -t source.zip
           unzip -q source.zip
           test -f v21src/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
@@ -45,11 +45,15 @@ jobs:
         working-directory: v21src
         run: gradle --no-daemon assembleRelease
 
-      - name: Prepare artifact
+      - name: Prepare artifact and signer
         run: |
           cp v21src/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.1-unsigned.apk
           unzip -t App-Volume-Buttons-v2.1-unsigned.apk
           sha256sum App-Volume-Buttons-v2.1-unsigned.apk > App-Volume-Buttons-v2.1-unsigned-checksum.txt
+          mkdir -p signer/lib
+          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" signer/apksigner
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" signer/lib/apksigner.jar
+          chmod +x signer/apksigner
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -58,3 +62,4 @@ jobs:
           path: |
             App-Volume-Buttons-v2.1-unsigned.apk
             App-Volume-Buttons-v2.1-unsigned-checksum.txt
+            signer/
