@@ -38,6 +38,8 @@ jobs:
           unzip -t youtube-volume-buttons-v20-source.zip
           unzip -q youtube-volume-buttons-v20-source.zip
           test -f v20src/app/src/main/java/com/garrett/appvolumestepper/SamsungAppVolumeManager.java
+          sed -i 's/android.useAndroidX=false/android.useAndroidX=true/' v20src/gradle.properties
+          grep 'android.useAndroidX=true' v20src/gradle.properties
 
       - name: Build APK
         working-directory: v20src
