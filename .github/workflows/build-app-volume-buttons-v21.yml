@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - app-volume-buttons-v21-build
+  pull_request:
+    paths:
+      - 'app-volume-buttons-v21-source.zip.b64'
+      - '.github/workflows/build-app-volume-buttons-v21.yml'
 
 jobs:
   build:
