@@ -1,0 +1,48 @@
+name: Build App Volume Buttons v2.2
+
+on:
+  pull_request:
+    paths:
+      - 'app-volume-buttons-v22-source.zip.b64'
+      - '.github/workflows/build-app-volume-buttons-v22.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore source
+        run: |
+          base64 -d app-volume-buttons-v22-source.zip.b64 > app-volume-buttons-v22-source.zip
+          echo '0a48965347e28bbd936459ab9af5f5a20ef0531057a16501cee5621ad6af5175  app-volume-buttons-v22-source.zip' | sha256sum -c -
+          mkdir v22build
+          unzip -q app-volume-buttons-v22-source.zip -d v22build
+          grep -q "versionName '2.2'" v22build/app/build.gradle
+          grep -q '<string name="app_name">App Volume Buttons</string>' v22build/app/src/main/res/values/strings.xml
+      - name: Build unsigned release APK
+        working-directory: v22build
+        run: gradle --no-daemon assembleRelease
+      - name: Prepare artifact
+        run: |
+          cp v22build/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.2-unsigned.apk
+          sha256sum App-Volume-Buttons-v2.2-unsigned.apk > App-Volume-Buttons-v2.2-unsigned-checksum.txt
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-Volume-Buttons-v2.2-unsigned
+          path: |
+            App-Volume-Buttons-v2.2-unsigned.apk
+            App-Volume-Buttons-v2.2-unsigned-checksum.txt
