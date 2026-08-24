@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">App Volume Buttons</string>
+    <string name="service_name">Per-app volume buttons</string>
+    <string name="service_description">Redirects the physical volume buttons to Samsung native per-app volume for the foreground app while keeping the main Media volume unchanged.</string>
+</resources>
