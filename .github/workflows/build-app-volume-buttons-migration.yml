@@ -4,12 +4,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/build-app-volume-buttons-migration.yml'
-      - 'migration-final-source.zip.b64'
-      - 'migration-helper/**'
-      - 'migration-final.apk.b64'
+      - 'migration-helper-source-part*'
 
 jobs:
-  build-final:
+  build-helper:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,19 +21,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Decode final source
+      - name: Reassemble helper source
         run: |
-          mkdir finalsrc
-          base64 -d migration-final-source.zip.b64 > finalsrc.zip
-          unzip -q finalsrc.zip -d finalsrc
-      - name: Build final unsigned APK
-        working-directory: finalsrc
+          cat migration-helper-source-part* > migration-helper-source.zip.b64
+          base64 -d migration-helper-source.zip.b64 > migration-helper-source.zip
+          mkdir helper
+          unzip -q migration-helper-source.zip -d helper
+          test -f helper/app/src/main/assets/App-Volume-Buttons-v2.4.apk
+      - name: Build migration helper
+        working-directory: helper
         run: gradle --no-daemon assembleRelease
-      - name: Prepare final artifact
+      - name: Prepare artifact
         run: |
-          cp finalsrc/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-v2.4-permanent-unsigned.apk
-          unzip -t App-Volume-Buttons-v2.4-permanent-unsigned.apk
+          cp helper/app/build/outputs/apk/release/app-release-unsigned.apk App-Volume-Buttons-Migration-unsigned.apk
+          unzip -t App-Volume-Buttons-Migration-unsigned.apk
+          sha256sum App-Volume-Buttons-Migration-unsigned.apk > App-Volume-Buttons-Migration-unsigned-checksum.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: App-Volume-Buttons-v2.4-permanent-unsigned
-          path: App-Volume-Buttons-v2.4-permanent-unsigned.apk
+          name: App-Volume-Buttons-Migration-unsigned
+          path: |
+            App-Volume-Buttons-Migration-unsigned.apk
+            App-Volume-Buttons-Migration-unsigned-checksum.txt
