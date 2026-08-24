@@ -1,0 +1,56 @@
+name: Build App Volume Buttons v2.1
+
+on:
+  push:
+    branches:
+      - app-volume-buttons-v21-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' >/dev/null
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore source
+        run: |
+          base64 -d app-volume-buttons-v21-source.zip.b64 > source.zip
+          echo '07fcf53985da0e8e2a7da77da2ca73f740bb010159de7110a94c0d96f2f9bc79  source.zip' | sha256sum -c -
+          unzip -t source.zip
+          unzip -q source.zip
+          test -f v21src/app/src/main/java/com/garrett/appvolumestepper/VolumeKeyService.java
+
+      - name: Build APK
+        working-directory: v21src
+        run: gradle --no-daemon assembleDebug
+
+      - name: Prepare artifact
+        run: |
+          cp v21src/app/build/outputs/apk/debug/app-debug.apk App-Volume-Buttons-v2.1-debug.apk
+          unzip -t App-Volume-Buttons-v2.1-debug.apk
+          sha256sum App-Volume-Buttons-v2.1-debug.apk > App-Volume-Buttons-v2.1-debug-checksum.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-Volume-Buttons-v2.1-debug
+          path: |
+            App-Volume-Buttons-v2.1-debug.apk
+            App-Volume-Buttons-v2.1-debug-checksum.txt
