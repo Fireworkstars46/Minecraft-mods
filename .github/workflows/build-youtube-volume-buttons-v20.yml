@@ -39,7 +39,13 @@ jobs:
           unzip -q youtube-volume-buttons-v20-source.zip
           test -f v20src/app/src/main/java/com/garrett/appvolumestepper/SamsungAppVolumeManager.java
           sed -i 's/android.useAndroidX=false/android.useAndroidX=true/' v20src/gradle.properties
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('v20src/app/src/main/res/values/strings.xml')
+          p.write_text(p.read_text().replace("Samsung's", "Samsung\\'s"))
+          PY
           grep 'android.useAndroidX=true' v20src/gradle.properties
+          grep 'Samsung' v20src/app/src/main/res/values/strings.xml
 
       - name: Build APK
         working-directory: v20src
