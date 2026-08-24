@@ -3,7 +3,7 @@ name: Build App Volume Buttons v2.3
 on:
   pull_request:
     paths:
-      - 'app-volume-buttons-v23-source.zip.b64'
+      - 'v23parts/**'
       - '.github/workflows/build-app-volume-buttons-v23.yml'
 
 jobs:
@@ -26,7 +26,8 @@ jobs:
           gradle-version: '8.9'
       - name: Restore source
         run: |
-          base64 -d app-volume-buttons-v23-source.zip.b64 > app-volume-buttons-v23-source.zip
+          cat v23parts/part00 v23parts/part01 v23parts/part02 v23parts/part03 v23parts/part04 > project.b64
+          base64 -d project.b64 > app-volume-buttons-v23-source.zip
           echo 'a51c26ea64e7b7219147fe709d83829be057069412a8dee9e2411969cf5fa773  app-volume-buttons-v23-source.zip' | sha256sum -c -
           mkdir v23build
           unzip -q app-volume-buttons-v23-source.zip -d v23build
