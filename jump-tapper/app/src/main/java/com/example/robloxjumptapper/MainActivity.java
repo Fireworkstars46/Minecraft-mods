@@ -14,12 +14,14 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -38,6 +40,7 @@ public class MainActivity extends Activity {
     private LinearLayout splitFieldsRow;
     private RadioButton splitMode, millisMode;
     private CheckBox showTarget, showControls, debugEnabled;
+    private Spinner hotkeySpinner;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -45,7 +48,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
-        TextView title = new TextView(this); title.setText("Jump Tapper v1.15"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
+        TextView title = new TextView(this); title.setText("Jump Tapper v1.16"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
         Button accessibility = new Button(this); accessibility.setText("Open Accessibility Settings"); accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))); root.addView(accessibility);
         root.addView(heading("Tap interval"));
 
@@ -70,6 +73,18 @@ public class MainActivity extends Activity {
         showTarget=new CheckBox(this);showTarget.setText("Show circular target");showTarget.setChecked(prefs.getBoolean("target_visible",true));root.addView(showTarget);
         showControls=new CheckBox(this);showControls.setText("Show START/STOP controls");showControls.setChecked(prefs.getBoolean("control_visible",true));root.addView(showControls);
 
+        root.addView(heading("Overlay hide/show keybind"));
+        hotkeySpinner = new Spinner(this);
+        String[] hotkeyOptions = new String[]{"Volume Up + Volume Down together", "Volume Up only", "Volume Down only", "Disabled"};
+        ArrayAdapter<String> hotkeyAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, hotkeyOptions);
+        hotkeyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        hotkeySpinner.setAdapter(hotkeyAdapter);
+        int savedHotkey = prefs.getInt("overlay_hotkey", 0); if(savedHotkey<0||savedHotkey>3)savedHotkey=0; hotkeySpinner.setSelection(savedHotkey);
+        root.addView(hotkeySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView hotkeyNote = new TextView(this);
+        hotkeyNote.setText("The keybind hides/shows only the START overlay box. Auto tapping keeps running. If you choose Volume Up only or Volume Down only, that key becomes the overlay toggle while Jump Tapper Accessibility is enabled.");
+        hotkeyNote.setTextSize(12); hotkeyNote.setPadding(0, dp(5), 0, dp(8)); root.addView(hotkeyNote);
+
         TextView note=new TextView(this);note.setText("Tap ≡ to collapse/open the floating controls. Hold ≡ for about 0.3 seconds, then drag to move the controls. Use MOVE to drag the target itself, then LOCK when positioned.");note.setTextSize(13);note.setPadding(0,dp(8),0,dp(8));root.addView(note);
 
         root.addView(heading("Debugging"));
@@ -78,7 +93,7 @@ public class MainActivity extends Activity {
         Button copy=new Button(this);copy.setText("Copy Log");copy.setOnClickListener(v->copyLog());debugRow.addView(copy,new LinearLayout.LayoutParams(0,dp(48),1));
         Button share=new Button(this);share.setText("Share Log");share.setOnClickListener(v->shareLog());debugRow.addView(share,new LinearLayout.LayoutParams(0,dp(48),1));
         Button clear=new Button(this);clear.setText("Clear Log");clear.setOnClickListener(v->clearLog());debugRow.addView(clear,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(debugRow);
-        TextView debugNote=new TextView(this);debugNote.setText("v1.15 performance mode keeps debug lines in memory while START is running, caches the tap position, and disables MOVE/TAP/J until you STOP.");debugNote.setTextSize(12);root.addView(debugNote);
+        TextView debugNote=new TextView(this);debugNote.setText("v1.16 keeps the v1.15 performance mode and adds hardware-key overlay toggling.");debugNote.setTextSize(12);root.addView(debugNote);
 
         Button save=new Button(this);save.setText("Save Settings");save.setOnClickListener(v->saveSettings());root.addView(save);
         setContentView(root);
@@ -94,12 +109,12 @@ public class MainActivity extends Activity {
 
     private void saveSettings(){long interval;int targetSize,controlScale;try{if(millisMode.isChecked())interval=parseLong(totalMillisField);else{long h=parseLong(hoursField),m=parseLong(minutesField),s=parseLong(secondsField),ms=parseLong(millisField);interval=Math.addExact(Math.addExact(Math.multiplyExact(h,3600000L),Math.multiplyExact(m,60000L)),Math.addExact(Math.multiplyExact(s,1000L),ms));}targetSize=Integer.parseInt(targetSizeField.getText().toString().trim());controlScale=Integer.parseInt(controlScaleField.getText().toString().trim());}catch(Exception e){Toast.makeText(this,"Check the numbers.",Toast.LENGTH_LONG).show();return;}
         if(interval<1L||interval>MAX_INTERVAL_MS){Toast.makeText(this,"Interval must be 1 ms to 24 hours.",Toast.LENGTH_LONG).show();return;}if(targetSize<30||targetSize>140){Toast.makeText(this,"Target size must be 30–140 dp.",Toast.LENGTH_LONG).show();return;}if(controlScale<60||controlScale>160){Toast.makeText(this,"Control size must be 60–160%.",Toast.LENGTH_LONG).show();return;}
-        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putLong("interval_ms",interval).putBoolean("millis_mode",millisMode.isChecked()).putInt("target_size_dp",targetSize).putInt("control_scale",controlScale).putBoolean("target_visible",showTarget.isChecked()).putBoolean("control_visible",showControls.isChecked()).putBoolean("debug_enabled",debugEnabled.isChecked()).apply();
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putLong("interval_ms",interval).putBoolean("millis_mode",millisMode.isChecked()).putInt("target_size_dp",targetSize).putInt("control_scale",controlScale).putBoolean("target_visible",showTarget.isChecked()).putBoolean("control_visible",showControls.isChecked()).putBoolean("debug_enabled",debugEnabled.isChecked()).putInt("overlay_hotkey",hotkeySpinner.getSelectedItemPosition()).apply();
         Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);Toast.makeText(this,"Saved",Toast.LENGTH_SHORT).show();}
 
     private String readLog(){try{File f=new File(getFilesDir(),DEBUG_FILE);if(!f.exists())return "No debug log yet.";if(Build.VERSION.SDK_INT>=26)return new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8);java.io.FileInputStream in=new java.io.FileInputStream(f);byte[] b=new byte[(int)f.length()];int n=in.read(b);in.close();return new String(b,0,Math.max(0,n),StandardCharsets.UTF_8);}catch(Exception e){return "Could not read debug log: "+e.getMessage();}}
     private void copyLog(){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Jump Tapper Debug Log",readLog()));Toast.makeText(this,"Debug log copied",Toast.LENGTH_SHORT).show();}
-    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.15 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
+    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.16 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
     private void clearLog(){File f=new File(getFilesDir(),DEBUG_FILE);if(f.exists())f.delete();Toast.makeText(this,"Debug log cleared",Toast.LENGTH_SHORT).show();}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }
