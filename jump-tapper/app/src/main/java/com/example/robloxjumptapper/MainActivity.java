@@ -171,5 +171,3 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy(){try{unregisterReceiver(keyCapturedReceiver);}catch(Exception ignored){}super.onDestroy();}
 }
-
-// Build refresh
