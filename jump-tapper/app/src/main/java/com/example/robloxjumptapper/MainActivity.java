@@ -1,10 +1,12 @@
 package com.example.robloxjumptapper;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.os.Build;
@@ -41,14 +43,32 @@ public class MainActivity extends Activity {
     private RadioButton splitMode, millisMode;
     private CheckBox showTarget, showControls, debugEnabled;
     private Spinner hotkeySpinner;
+    private TextView customKeyLabel;
+
+    private final BroadcastReceiver keyCapturedReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!TapAccessibilityService.ACTION_KEY_CAPTURED.equals(intent.getAction())) return;
+            String name = intent.getStringExtra("keyName");
+            int code = intent.getIntExtra("keyCode", 0);
+            hotkeySpinner.setSelection(3);
+            customKeyLabel.setText("Recorded: " + friendlyKeyName(name, code));
+            Toast.makeText(MainActivity.this, "Keybind recorded", Toast.LENGTH_SHORT).show();
+        }
+    };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        migrateHotkeySettings(prefs);
+
+        IntentFilter resultFilter = new IntentFilter(TapAccessibilityService.ACTION_KEY_CAPTURED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(keyCapturedReceiver, resultFilter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(keyCapturedReceiver, resultFilter);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18), dp(24), dp(18), dp(22));
 
-        TextView title = new TextView(this); title.setText("Jump Tapper v1.16"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
+        TextView title = new TextView(this); title.setText("Jump Tapper v1.17"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
         Button accessibility = new Button(this); accessibility.setText("Open Accessibility Settings"); accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))); root.addView(accessibility);
         root.addView(heading("Tap interval"));
 
@@ -75,14 +95,29 @@ public class MainActivity extends Activity {
 
         root.addView(heading("Overlay hide/show keybind"));
         hotkeySpinner = new Spinner(this);
-        String[] hotkeyOptions = new String[]{"Volume Up + Volume Down together", "Volume Up only", "Volume Down only", "Disabled"};
+        String[] hotkeyOptions = new String[]{"Volume Up + Volume Down together", "Volume Up only", "Volume Down only", "Custom recorded button/key", "Disabled"};
         ArrayAdapter<String> hotkeyAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, hotkeyOptions);
         hotkeyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         hotkeySpinner.setAdapter(hotkeyAdapter);
-        int savedHotkey = prefs.getInt("overlay_hotkey", 0); if(savedHotkey<0||savedHotkey>3)savedHotkey=0; hotkeySpinner.setSelection(savedHotkey);
+        int savedHotkey = prefs.getInt("overlay_hotkey", 0); if(savedHotkey<0||savedHotkey>4)savedHotkey=0; hotkeySpinner.setSelection(savedHotkey);
         root.addView(hotkeySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        Button recordKey = new Button(this); recordKey.setText("Record any button / key");
+        recordKey.setOnClickListener(v -> {
+            Intent i = new Intent(TapAccessibilityService.ACTION_CAPTURE_KEY); i.setPackage(getPackageName()); sendBroadcast(i);
+            customKeyLabel.setText("Listening… press the button/key you want now");
+            Toast.makeText(this, "Press your button/key now", Toast.LENGTH_LONG).show();
+        });
+        root.addView(recordKey);
+
+        customKeyLabel = new TextView(this);
+        String savedKeyName = prefs.getString("custom_hotkey_name", "");
+        int savedKeyCode = prefs.getInt("custom_hotkey_keycode", 0);
+        customKeyLabel.setText(savedKeyCode == 0 ? "No custom button recorded yet" : "Recorded: " + friendlyKeyName(savedKeyName, savedKeyCode));
+        customKeyLabel.setTextSize(13); customKeyLabel.setPadding(0, dp(5), 0, dp(5)); root.addView(customKeyLabel);
+
         TextView hotkeyNote = new TextView(this);
-        hotkeyNote.setText("The keybind hides/shows only the START overlay box. Auto tapping keeps running. If you choose Volume Up only or Volume Down only, that key becomes the overlay toggle while Jump Tapper Accessibility is enabled.");
+        hotkeyNote.setText("Record mode listens for the next hardware key/button Android gives the Accessibility service, including volume keys and many USB/Bluetooth keyboard or controller buttons. Some system-reserved buttons such as Power/Home may not be available to apps. The keybind hides/shows only the START overlay box; auto tapping keeps running.");
         hotkeyNote.setTextSize(12); hotkeyNote.setPadding(0, dp(5), 0, dp(8)); root.addView(hotkeyNote);
 
         TextView note=new TextView(this);note.setText("Tap ≡ to collapse/open the floating controls. Hold ≡ for about 0.3 seconds, then drag to move the controls. Use MOVE to drag the target itself, then LOCK when positioned.");note.setTextSize(13);note.setPadding(0,dp(8),0,dp(8));root.addView(note);
@@ -93,10 +128,24 @@ public class MainActivity extends Activity {
         Button copy=new Button(this);copy.setText("Copy Log");copy.setOnClickListener(v->copyLog());debugRow.addView(copy,new LinearLayout.LayoutParams(0,dp(48),1));
         Button share=new Button(this);share.setText("Share Log");share.setOnClickListener(v->shareLog());debugRow.addView(share,new LinearLayout.LayoutParams(0,dp(48),1));
         Button clear=new Button(this);clear.setText("Clear Log");clear.setOnClickListener(v->clearLog());debugRow.addView(clear,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(debugRow);
-        TextView debugNote=new TextView(this);debugNote.setText("v1.16 keeps the v1.15 performance mode and adds hardware-key overlay toggling.");debugNote.setTextSize(12);root.addView(debugNote);
+        TextView debugNote=new TextView(this);debugNote.setText("v1.17 keeps the v1.15 performance mode and adds learn-any-button keybind recording.");debugNote.setTextSize(12);root.addView(debugNote);
 
         Button save=new Button(this);save.setText("Save Settings");save.setOnClickListener(v->saveSettings());root.addView(save);
         setContentView(root);
+    }
+
+    private void migrateHotkeySettings(SharedPreferences prefs) {
+        if (!prefs.getBoolean("hotkey_schema_v2", false)) {
+            int old = prefs.getInt("overlay_hotkey", 0);
+            if (old == 3) old = 4;
+            prefs.edit().putInt("overlay_hotkey", old).putBoolean("hotkey_schema_v2", true).apply();
+        }
+    }
+
+    private String friendlyKeyName(String name, int code) {
+        if (name == null || name.isEmpty()) name = "KEYCODE_" + code;
+        if (name.startsWith("KEYCODE_")) name = name.substring(8);
+        return name.replace('_', ' ') + " (" + code + ")";
     }
 
     private TextView heading(String s){TextView t=new TextView(this);t.setText(s);t.setTextSize(18);t.setTypeface(Typeface.DEFAULT_BOLD);t.setPadding(0,dp(18),0,dp(6));return t;}
@@ -109,12 +158,16 @@ public class MainActivity extends Activity {
 
     private void saveSettings(){long interval;int targetSize,controlScale;try{if(millisMode.isChecked())interval=parseLong(totalMillisField);else{long h=parseLong(hoursField),m=parseLong(minutesField),s=parseLong(secondsField),ms=parseLong(millisField);interval=Math.addExact(Math.addExact(Math.multiplyExact(h,3600000L),Math.multiplyExact(m,60000L)),Math.addExact(Math.multiplyExact(s,1000L),ms));}targetSize=Integer.parseInt(targetSizeField.getText().toString().trim());controlScale=Integer.parseInt(controlScaleField.getText().toString().trim());}catch(Exception e){Toast.makeText(this,"Check the numbers.",Toast.LENGTH_LONG).show();return;}
         if(interval<1L||interval>MAX_INTERVAL_MS){Toast.makeText(this,"Interval must be 1 ms to 24 hours.",Toast.LENGTH_LONG).show();return;}if(targetSize<30||targetSize>140){Toast.makeText(this,"Target size must be 30–140 dp.",Toast.LENGTH_LONG).show();return;}if(controlScale<60||controlScale>160){Toast.makeText(this,"Control size must be 60–160%.",Toast.LENGTH_LONG).show();return;}
-        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putLong("interval_ms",interval).putBoolean("millis_mode",millisMode.isChecked()).putInt("target_size_dp",targetSize).putInt("control_scale",controlScale).putBoolean("target_visible",showTarget.isChecked()).putBoolean("control_visible",showControls.isChecked()).putBoolean("debug_enabled",debugEnabled.isChecked()).putInt("overlay_hotkey",hotkeySpinner.getSelectedItemPosition()).apply();
+        int hotkeyMode = hotkeySpinner.getSelectedItemPosition();
+        if(hotkeyMode==3 && getSharedPreferences(PREFS,MODE_PRIVATE).getInt("custom_hotkey_keycode",0)==0){Toast.makeText(this,"Record a custom button/key first.",Toast.LENGTH_LONG).show();return;}
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putLong("interval_ms",interval).putBoolean("millis_mode",millisMode.isChecked()).putInt("target_size_dp",targetSize).putInt("control_scale",controlScale).putBoolean("target_visible",showTarget.isChecked()).putBoolean("control_visible",showControls.isChecked()).putBoolean("debug_enabled",debugEnabled.isChecked()).putInt("overlay_hotkey",hotkeyMode).putBoolean("hotkey_schema_v2",true).apply();
         Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);Toast.makeText(this,"Saved",Toast.LENGTH_SHORT).show();}
 
     private String readLog(){try{File f=new File(getFilesDir(),DEBUG_FILE);if(!f.exists())return "No debug log yet.";if(Build.VERSION.SDK_INT>=26)return new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8);java.io.FileInputStream in=new java.io.FileInputStream(f);byte[] b=new byte[(int)f.length()];int n=in.read(b);in.close();return new String(b,0,Math.max(0,n),StandardCharsets.UTF_8);}catch(Exception e){return "Could not read debug log: "+e.getMessage();}}
     private void copyLog(){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Jump Tapper Debug Log",readLog()));Toast.makeText(this,"Debug log copied",Toast.LENGTH_SHORT).show();}
-    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.16 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
+    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.17 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
     private void clearLog(){File f=new File(getFilesDir(),DEBUG_FILE);if(f.exists())f.delete();Toast.makeText(this,"Debug log cleared",Toast.LENGTH_SHORT).show();}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
+
+    @Override protected void onDestroy(){try{unregisterReceiver(keyCapturedReceiver);}catch(Exception ignored){}super.onDestroy();}
 }
