@@ -14,5 +14,3 @@ android {
         versionName '1.17'
     }
 }
-
-// v1.17 build trigger
