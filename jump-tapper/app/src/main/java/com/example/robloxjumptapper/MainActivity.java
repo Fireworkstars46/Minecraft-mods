@@ -68,11 +68,22 @@ public class MainActivity extends Activity {
         else registerReceiver(keyCapturedReceiver, resultFilter);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setClipToPadding(false);
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18), dp(24), dp(18), dp(28));
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(24), dp(18), dp(52));
         scroll.addView(root);
 
-        TextView title = new TextView(this); title.setText("Jump Tapper v1.18"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
+        // Keep the bottom controls fully above Samsung/Android navigation bars.
+        // The extra 24dp also gives the Save button breathing room when scrolled to the end.
+        scroll.setOnApplyWindowInsetsListener((v, insets) -> {
+            int bottomInset = insets.getSystemWindowInsetBottom();
+            root.setPadding(dp(18), dp(24), dp(18), dp(52) + bottomInset + dp(24));
+            return insets;
+        });
+
+        TextView title = new TextView(this); title.setText("Jump Tapper v1.18.2"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
         TextView subtitle = new TextView(this); subtitle.setText("Advanced controls"); subtitle.setTextSize(14); subtitle.setPadding(0,0,0,dp(8)); root.addView(subtitle);
         Button accessibility = new Button(this); accessibility.setText("Open Accessibility Settings"); accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))); root.addView(accessibility);
 
@@ -156,6 +167,7 @@ public class MainActivity extends Activity {
 
         Button save=new Button(this);save.setText("Save Settings");save.setOnClickListener(v->saveSettings());root.addView(save);
         setContentView(scroll);
+        scroll.requestApplyInsets();
     }
 
     private void migrateHotkeySettings(SharedPreferences prefs) {
@@ -223,7 +235,7 @@ public class MainActivity extends Activity {
 
     private String readLog(){try{File f=new File(getFilesDir(),DEBUG_FILE);if(!f.exists())return "No debug log yet.";if(Build.VERSION.SDK_INT>=26)return new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8);java.io.FileInputStream in=new java.io.FileInputStream(f);byte[] b=new byte[(int)f.length()];int n=in.read(b);in.close();return new String(b,0,Math.max(0,n),StandardCharsets.UTF_8);}catch(Exception e){return "Could not read debug log: "+e.getMessage();}}
     private void copyLog(){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Jump Tapper Debug Log",readLog()));Toast.makeText(this,"Debug log copied",Toast.LENGTH_SHORT).show();}
-    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.18 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
+    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.18.2 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
     private void clearLog(){File f=new File(getFilesDir(),DEBUG_FILE);if(f.exists())f.delete();Toast.makeText(this,"Debug log cleared",Toast.LENGTH_SHORT).show();}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 
