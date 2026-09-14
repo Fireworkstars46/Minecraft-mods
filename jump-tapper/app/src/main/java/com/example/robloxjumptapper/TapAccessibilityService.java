@@ -40,6 +40,8 @@ import java.util.concurrent.Executors;
 public class TapAccessibilityService extends AccessibilityService {
     public static final String ACTION_CAPTURE_KEY = "com.example.robloxjumptapper.CAPTURE_KEY";
     public static final String ACTION_KEY_CAPTURED = "com.example.robloxjumptapper.KEY_CAPTURED";
+    public static final String ACTION_CAPTURE_STARTSTOP_KEY = "com.example.robloxjumptapper.CAPTURE_STARTSTOP_KEY";
+    public static final String ACTION_STARTSTOP_KEY_CAPTURED = "com.example.robloxjumptapper.STARTSTOP_KEY_CAPTURED";
 
     private WindowManager wm;
     private TextView target;
@@ -50,10 +52,11 @@ public class TapAccessibilityService extends AccessibilityService {
     private final StringBuilder logBuffer = new StringBuilder();
 
     private boolean running=false, tapInProgress=false, moveMode=true, targetVisible=true, controlVisible=true, collapsed=false, debug=true;
-    private boolean hotkeyHidden=false, volUpDown=false, volDownDown=false, comboLatched=false, captureNextKey=false;
+    private boolean hotkeyHidden=false, volUpDown=false, volDownDown=false, comboLatched=false, captureNextKey=false, captureStartStopKey=false;
     private boolean hapticEnabled=true, autoCollapseStart=false, hideTargetRunning=false;
     private long intervalMs=30000L, seq=0, tapStart=0, nextTapUptime=0, lastVolUpDown=0L, lastVolDownDown=0L;
     private int targetSizeDp=58, controlScale=100, hotkeyMode=0, comboFirstKey=0, customKeyCode=KeyEvent.KEYCODE_UNKNOWN;
+    private int startStopHotkeyMode=0, startStopKeyCode=KeyEvent.KEYCODE_UNKNOWN;
     private int tapDurationMs=30, startDelayMs=0, targetOpacity=90, controlOpacity=87, hapticStrength=80;
     private float cachedTapX=0f, cachedTapY=0f;
     private Button startStop, moveButton, tapButton, targetButton;
@@ -79,13 +82,20 @@ public class TapAccessibilityService extends AccessibilityService {
         @Override public void onReceive(Context c, Intent i) {
             if (ACTION_CAPTURE_KEY.equals(i.getAction())) {
                 captureNextKey = true;
-                log("HOTKEY_CAPTURE_ARMED");
+                captureStartStopKey = false;
+                log("OVERLAY_HOTKEY_CAPTURE_ARMED");
+                return;
+            }
+            if (ACTION_CAPTURE_STARTSTOP_KEY.equals(i.getAction())) {
+                captureStartStopKey = true;
+                captureNextKey = false;
+                log("STARTSTOP_HOTKEY_CAPTURE_ARMED");
                 return;
             }
             if (MainActivity.ACTION_RELOAD.equals(i.getAction())) {
                 if (running) { log("SETTINGS_RELOAD_IGNORED whileRunning=true"); return; }
                 load();
-                log("SETTINGS_RELOAD intervalMs=" + intervalMs + " tapDurationMs=" + tapDurationMs + " startDelayMs=" + startDelayMs);
+                log("SETTINGS_RELOAD intervalMs=" + intervalMs + " tapDurationMs=" + tapDurationMs + " startDelayMs=" + startDelayMs + " startStopMode=" + startStopHotkeyMode);
                 apply();
             }
         }
@@ -95,9 +105,12 @@ public class TapAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         migrateHotkeySettings(); load();
-        log("SERVICE_CONNECTED sdk=" + Build.VERSION.SDK_INT + " hotkeyMode=" + hotkeyMode + " customKey=" + customKeyCode);
+        log("SERVICE_CONNECTED sdk=" + Build.VERSION.SDK_INT + " hotkeyMode=" + hotkeyMode + " customKey=" + customKeyCode + " startStopMode=" + startStopHotkeyMode + " startStopKey=" + startStopKeyCode);
         createTarget(); createControl(); apply();
-        IntentFilter f = new IntentFilter(); f.addAction(MainActivity.ACTION_RELOAD); f.addAction(ACTION_CAPTURE_KEY);
+        IntentFilter f = new IntentFilter();
+        f.addAction(MainActivity.ACTION_RELOAD);
+        f.addAction(ACTION_CAPTURE_KEY);
+        f.addAction(ACTION_CAPTURE_STARTSTOP_KEY);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(receiver, f);
     }
 
@@ -128,6 +141,8 @@ public class TapAccessibilityService extends AccessibilityService {
         hideTargetRunning = p.getBoolean("hide_target_running",false);
         hotkeyMode = p.getInt("overlay_hotkey",0); if(hotkeyMode<0||hotkeyMode>4)hotkeyMode=0;
         customKeyCode = p.getInt("custom_hotkey_keycode",KeyEvent.KEYCODE_UNKNOWN);
+        startStopHotkeyMode = p.getInt("startstop_hotkey_mode",0); if(startStopHotkeyMode<0||startStopHotkeyMode>1)startStopHotkeyMode=0;
+        startStopKeyCode = p.getInt("startstop_hotkey_keycode",KeyEvent.KEYCODE_UNKNOWN);
     }
 
     private int clamp(int v,int min,int max){return Math.max(min,Math.min(max,v));}
@@ -207,15 +222,29 @@ public class TapAccessibilityService extends AccessibilityService {
     private void captureCustomKey(KeyEvent event){
         customKeyCode=event.getKeyCode();String name=KeyEvent.keyCodeToString(customKeyCode);
         getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt("custom_hotkey_keycode",customKeyCode).putString("custom_hotkey_name",name).putInt("overlay_hotkey",3).putBoolean("hotkey_schema_v2",true).apply();
-        hotkeyMode=3;captureNextKey=false;vibrate(18);log("HOTKEY_CAPTURED keyCode="+customKeyCode+" name="+name);
+        hotkeyMode=3;captureNextKey=false;vibrate(18);log("OVERLAY_HOTKEY_CAPTURED keyCode="+customKeyCode+" name="+name);
         Intent result=new Intent(ACTION_KEY_CAPTURED);result.setPackage(getPackageName());result.putExtra("keyCode",customKeyCode);result.putExtra("keyName",name);sendBroadcast(result);
+    }
+
+    private void captureStartStopKey(KeyEvent event){
+        startStopKeyCode=event.getKeyCode();String name=KeyEvent.keyCodeToString(startStopKeyCode);
+        getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt("startstop_hotkey_keycode",startStopKeyCode).putString("startstop_hotkey_name",name).putInt("startstop_hotkey_mode",1).apply();
+        startStopHotkeyMode=1;captureStartStopKey=false;vibrate(18);log("STARTSTOP_HOTKEY_CAPTURED keyCode="+startStopKeyCode+" name="+name);
+        Intent result=new Intent(ACTION_STARTSTOP_KEY_CAPTURED);result.setPackage(getPackageName());result.putExtra("keyCode",startStopKeyCode);result.putExtra("keyName",name);sendBroadcast(result);
     }
 
     private void compensateFirstComboVolumeKey(){AudioManager a=(AudioManager)getSystemService(AUDIO_SERVICE);if(a==null)return;if(comboFirstKey==KeyEvent.KEYCODE_VOLUME_UP)a.adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_LOWER,0);else if(comboFirstKey==KeyEvent.KEYCODE_VOLUME_DOWN)a.adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_RAISE,0);}
 
     @Override protected boolean onKeyEvent(KeyEvent event){
         int code=event.getKeyCode(),action=event.getAction();
+        if(captureStartStopKey){if(action==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)captureStartStopKey(event);return true;}
         if(captureNextKey){if(action==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)captureCustomKey(event);return true;}
+
+        if(startStopHotkeyMode==1&&startStopKeyCode!=KeyEvent.KEYCODE_UNKNOWN&&code==startStopKeyCode){
+            if(action==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){log("BACKGROUND_STARTSTOP_HOTKEY runningBefore="+running+" keyCode="+code);toggle();}
+            return true;
+        }
+
         if(hotkeyMode==4)return false;
         if(hotkeyMode==3&&customKeyCode!=KeyEvent.KEYCODE_UNKNOWN&&code==customKeyCode){if(action==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)toggleOverlayHotkey();return true;}
         if(hotkeyMode==1&&code==KeyEvent.KEYCODE_VOLUME_UP){if(action==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)toggleOverlayHotkey();return true;}
