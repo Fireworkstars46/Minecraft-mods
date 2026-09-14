@@ -44,17 +44,23 @@ public class MainActivity extends Activity {
     private LinearLayout splitFieldsRow;
     private RadioButton splitMode, millisMode;
     private CheckBox showTarget, showControls, debugEnabled, hapticEnabled, autoCollapseStart, hideTargetRunning;
-    private Spinner hotkeySpinner;
-    private TextView customKeyLabel;
+    private Spinner hotkeySpinner, startStopHotkeySpinner;
+    private TextView customKeyLabel, startStopCustomKeyLabel;
 
     private final BroadcastReceiver keyCapturedReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (!TapAccessibilityService.ACTION_KEY_CAPTURED.equals(intent.getAction())) return;
+            String action = intent.getAction();
             String name = intent.getStringExtra("keyName");
             int code = intent.getIntExtra("keyCode", 0);
-            hotkeySpinner.setSelection(3);
-            customKeyLabel.setText("Recorded: " + friendlyKeyName(name, code));
-            Toast.makeText(MainActivity.this, "Keybind recorded", Toast.LENGTH_SHORT).show();
+            if (TapAccessibilityService.ACTION_KEY_CAPTURED.equals(action)) {
+                hotkeySpinner.setSelection(3);
+                customKeyLabel.setText("Recorded: " + friendlyKeyName(name, code));
+                Toast.makeText(MainActivity.this, "Overlay keybind recorded", Toast.LENGTH_SHORT).show();
+            } else if (TapAccessibilityService.ACTION_STARTSTOP_KEY_CAPTURED.equals(action)) {
+                startStopHotkeySpinner.setSelection(1);
+                startStopCustomKeyLabel.setText("Recorded: " + friendlyKeyName(name, code));
+                Toast.makeText(MainActivity.this, "Start/Stop keybind recorded", Toast.LENGTH_SHORT).show();
+            }
         }
     };
 
@@ -63,7 +69,9 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         migrateHotkeySettings(prefs);
 
-        IntentFilter resultFilter = new IntentFilter(TapAccessibilityService.ACTION_KEY_CAPTURED);
+        IntentFilter resultFilter = new IntentFilter();
+        resultFilter.addAction(TapAccessibilityService.ACTION_KEY_CAPTURED);
+        resultFilter.addAction(TapAccessibilityService.ACTION_STARTSTOP_KEY_CAPTURED);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(keyCapturedReceiver, resultFilter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(keyCapturedReceiver, resultFilter);
 
@@ -75,15 +83,13 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(52));
         scroll.addView(root);
 
-        // Keep the bottom controls fully above Samsung/Android navigation bars.
-        // The extra 24dp also gives the Save button breathing room when scrolled to the end.
         scroll.setOnApplyWindowInsetsListener((v, insets) -> {
             int bottomInset = insets.getSystemWindowInsetBottom();
             root.setPadding(dp(18), dp(24), dp(18), dp(52) + bottomInset + dp(24));
             return insets;
         });
 
-        TextView title = new TextView(this); title.setText("Jump Tapper v1.18.2"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
+        TextView title = new TextView(this); title.setText("Jump Tapper v1.19"); title.setTextSize(28); title.setTypeface(Typeface.DEFAULT_BOLD); root.addView(title);
         TextView subtitle = new TextView(this); subtitle.setText("Advanced controls"); subtitle.setTextSize(14); subtitle.setPadding(0,0,0,dp(8)); root.addView(subtitle);
         Button accessibility = new Button(this); accessibility.setText("Open Accessibility Settings"); accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))); root.addView(accessibility);
 
@@ -125,6 +131,31 @@ public class MainActivity extends Activity {
         hapticEnabled=new CheckBox(this);hapticEnabled.setText("Vibrate for START / STOP / overlay toggle");hapticEnabled.setChecked(prefs.getBoolean("haptic_enabled",true));root.addView(hapticEnabled);
         hapticStrengthField=numberField(String.valueOf(prefs.getInt("haptic_strength",80)),3);root.addView(labeledBlock(hapticStrengthField,"Haptic strength 1–255"));
 
+        root.addView(heading("Background Start/Stop keybind"));
+        startStopHotkeySpinner = new Spinner(this);
+        String[] startStopOptions = new String[]{"Disabled", "Custom recorded button/key"};
+        ArrayAdapter<String> startStopAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, startStopOptions);
+        startStopAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        startStopHotkeySpinner.setAdapter(startStopAdapter);
+        int savedStartStopMode = prefs.getInt("startstop_hotkey_mode", 0); if(savedStartStopMode<0||savedStartStopMode>1)savedStartStopMode=0; startStopHotkeySpinner.setSelection(savedStartStopMode);
+        root.addView(startStopHotkeySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        Button recordStartStopKey = new Button(this); recordStartStopKey.setText("Record Start/Stop button / key");
+        recordStartStopKey.setOnClickListener(v -> {
+            Intent i = new Intent(TapAccessibilityService.ACTION_CAPTURE_STARTSTOP_KEY); i.setPackage(getPackageName()); sendBroadcast(i);
+            startStopCustomKeyLabel.setText("Listening… press the button/key you want now");
+            Toast.makeText(this, "Press your Start/Stop button/key now", Toast.LENGTH_LONG).show();
+        });
+        root.addView(recordStartStopKey);
+        startStopCustomKeyLabel = new TextView(this);
+        String savedStartStopName = prefs.getString("startstop_hotkey_name", "");
+        int savedStartStopCode = prefs.getInt("startstop_hotkey_keycode", 0);
+        startStopCustomKeyLabel.setText(savedStartStopCode == 0 ? "No Start/Stop button recorded yet" : "Recorded: " + friendlyKeyName(savedStartStopName, savedStartStopCode));
+        startStopCustomKeyLabel.setTextSize(13); startStopCustomKeyLabel.setPadding(0,dp(5),0,dp(5)); root.addView(startStopCustomKeyLabel);
+        TextView startStopNote = new TextView(this);
+        startStopNote.setText("When enabled, this button starts or stops auto-tapping even while Roblox is in front and even if the floating control box is hidden. If you assign the same key as the overlay keybind, Start/Stop takes priority.");
+        startStopNote.setTextSize(12); startStopNote.setPadding(0,dp(5),0,dp(8)); root.addView(startStopNote);
+
         root.addView(heading("Overlay hide/show keybind"));
         hotkeySpinner = new Spinner(this);
         String[] hotkeyOptions = new String[]{"Volume Up + Volume Down together", "Volume Up only", "Volume Down only", "Custom recorded button/key", "Disabled"};
@@ -134,17 +165,17 @@ public class MainActivity extends Activity {
         int savedHotkey = prefs.getInt("overlay_hotkey", 0); if(savedHotkey<0||savedHotkey>4)savedHotkey=0; hotkeySpinner.setSelection(savedHotkey);
         root.addView(hotkeySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        Button recordKey = new Button(this); recordKey.setText("Record any button / key");
+        Button recordKey = new Button(this); recordKey.setText("Record overlay button / key");
         recordKey.setOnClickListener(v -> {
             Intent i = new Intent(TapAccessibilityService.ACTION_CAPTURE_KEY); i.setPackage(getPackageName()); sendBroadcast(i);
             customKeyLabel.setText("Listening… press the button/key you want now");
-            Toast.makeText(this, "Press your button/key now", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Press your overlay button/key now", Toast.LENGTH_LONG).show();
         });
         root.addView(recordKey);
         customKeyLabel = new TextView(this);
         String savedKeyName = prefs.getString("custom_hotkey_name", "");
         int savedKeyCode = prefs.getInt("custom_hotkey_keycode", 0);
-        customKeyLabel.setText(savedKeyCode == 0 ? "No custom button recorded yet" : "Recorded: " + friendlyKeyName(savedKeyName, savedKeyCode));
+        customKeyLabel.setText(savedKeyCode == 0 ? "No custom overlay button recorded yet" : "Recorded: " + friendlyKeyName(savedKeyName, savedKeyCode));
         customKeyLabel.setTextSize(13); customKeyLabel.setPadding(0, dp(5), 0, dp(5)); root.addView(customKeyLabel);
 
         TextView hotkeyNote = new TextView(this);
@@ -207,8 +238,11 @@ public class MainActivity extends Activity {
         if(targetOpacity<10||targetOpacity>100||controlOpacity<10||controlOpacity>100){Toast.makeText(this,"Opacity must be 10–100%.",Toast.LENGTH_LONG).show();return;}
         if(hapticStrength<1||hapticStrength>255){Toast.makeText(this,"Haptic strength must be 1–255.",Toast.LENGTH_LONG).show();return;}
         int hotkeyMode = hotkeySpinner.getSelectedItemPosition();
-        if(hotkeyMode==3 && getSharedPreferences(PREFS,MODE_PRIVATE).getInt("custom_hotkey_keycode",0)==0){Toast.makeText(this,"Record a custom button/key first.",Toast.LENGTH_LONG).show();return;}
-        getSharedPreferences(PREFS,MODE_PRIVATE).edit()
+        int startStopMode = startStopHotkeySpinner.getSelectedItemPosition();
+        SharedPreferences current = getSharedPreferences(PREFS,MODE_PRIVATE);
+        if(hotkeyMode==3 && current.getInt("custom_hotkey_keycode",0)==0){Toast.makeText(this,"Record a custom overlay button/key first.",Toast.LENGTH_LONG).show();return;}
+        if(startStopMode==1 && current.getInt("startstop_hotkey_keycode",0)==0){Toast.makeText(this,"Record a Start/Stop button/key first.",Toast.LENGTH_LONG).show();return;}
+        current.edit()
                 .putLong("interval_ms",interval).putBoolean("millis_mode",millisMode.isChecked())
                 .putInt("target_size_dp",targetSize).putInt("control_scale",controlScale)
                 .putInt("tap_duration_ms",tapDuration).putInt("start_delay_ms",startDelay)
@@ -216,7 +250,8 @@ public class MainActivity extends Activity {
                 .putBoolean("target_visible",showTarget.isChecked()).putBoolean("control_visible",showControls.isChecked())
                 .putBoolean("auto_collapse_start",autoCollapseStart.isChecked()).putBoolean("hide_target_running",hideTargetRunning.isChecked())
                 .putBoolean("haptic_enabled",hapticEnabled.isChecked()).putInt("haptic_strength",hapticStrength)
-                .putBoolean("debug_enabled",debugEnabled.isChecked()).putInt("overlay_hotkey",hotkeyMode).putBoolean("hotkey_schema_v2",true).apply();
+                .putBoolean("debug_enabled",debugEnabled.isChecked()).putInt("overlay_hotkey",hotkeyMode)
+                .putInt("startstop_hotkey_mode",startStopMode).putBoolean("hotkey_schema_v2",true).apply();
         Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);Toast.makeText(this,"Saved",Toast.LENGTH_SHORT).show();
     }
 
@@ -228,14 +263,17 @@ public class MainActivity extends Activity {
     private void resetDefaults(){
         SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);
         int customCode=p.getInt("custom_hotkey_keycode",0);String customName=p.getString("custom_hotkey_name","");
-        p.edit().clear().putInt("custom_hotkey_keycode",customCode).putString("custom_hotkey_name",customName).putBoolean("hotkey_schema_v2",true).apply();
+        int startStopCode=p.getInt("startstop_hotkey_keycode",0);String startStopName=p.getString("startstop_hotkey_name","");
+        p.edit().clear().putInt("custom_hotkey_keycode",customCode).putString("custom_hotkey_name",customName)
+                .putInt("startstop_hotkey_keycode",startStopCode).putString("startstop_hotkey_name",startStopName)
+                .putBoolean("hotkey_schema_v2",true).apply();
         Toast.makeText(this,"Settings reset. Reopen Jump Tapper to refresh the page.",Toast.LENGTH_LONG).show();
         Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);
     }
 
     private String readLog(){try{File f=new File(getFilesDir(),DEBUG_FILE);if(!f.exists())return "No debug log yet.";if(Build.VERSION.SDK_INT>=26)return new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8);java.io.FileInputStream in=new java.io.FileInputStream(f);byte[] b=new byte[(int)f.length()];int n=in.read(b);in.close();return new String(b,0,Math.max(0,n),StandardCharsets.UTF_8);}catch(Exception e){return "Could not read debug log: "+e.getMessage();}}
     private void copyLog(){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Jump Tapper Debug Log",readLog()));Toast.makeText(this,"Debug log copied",Toast.LENGTH_SHORT).show();}
-    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.18.2 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
+    private void shareLog(){Intent s=new Intent(Intent.ACTION_SEND);s.setType("text/plain");s.putExtra(Intent.EXTRA_SUBJECT,"Jump Tapper v1.19 Debug Log");s.putExtra(Intent.EXTRA_TEXT,readLog());startActivity(Intent.createChooser(s,"Share debug log"));}
     private void clearLog(){File f=new File(getFilesDir(),DEBUG_FILE);if(f.exists())f.delete();Toast.makeText(this,"Debug log cleared",Toast.LENGTH_SHORT).show();}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 
