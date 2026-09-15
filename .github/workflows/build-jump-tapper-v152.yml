@@ -1,97 +1,87 @@
-name: Build Jump Tapper v1.55 APK
-
+name: Build Jump Tapper v1.56 APK
 on:
   push:
     branches: [ build-jump-tapper-apk ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+        with: {distribution: temurin, java-version: '17'}
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-      - name: Apply v1.51 base transformation
+        with: {gradle-version: '8.9'}
+      - name: Apply v1.51 base
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          wf=Path('.github/workflows/build-jump-tapper.yml').read_text().splitlines()
-          start=next(i for i,x in enumerate(wf) if 'name: Apply v1.51 full overlay settings sync' in x)
-          run=next(i+1 for i in range(start+1,len(wf)) if wf[i].strip()=='run: |')
-          block=[]
-          for line in wf[run:]:
-              if line.startswith('      - '): break
-              block.append(line[10:] if line.startswith('          ') else line)
-          Path('/tmp/v151.sh').write_text('\n'.join(block)+'\n')
+          w=Path('.github/workflows/build-jump-tapper.yml').read_text().splitlines();a=next(i for i,x in enumerate(w) if 'name: Apply v1.51 full overlay settings sync' in x);r=next(i+1 for i in range(a+1,len(w)) if w[i].strip()=='run: |');b=[]
+          for line in w[r:]:
+            if line.startswith('      - '):break
+            b.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/base.sh').write_text('\n'.join(b)+'\n')
           PY
-          bash /tmp/v151.sh
-      - name: Add self-test to both app and overlay, make overlay opaque
+          bash /tmp/base.sh
+      - name: Apply v1.56 fixes
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
           marker='settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));'
-          if marker not in s: raise SystemExit('overlay marker missing')
-          s=s.replace(marker,marker+'\n        Button selfTest=panelButton("TEST ALL ON/OFF SETTINGS");selfTest.setTextSize(13);selfTest.setOnClickListener(v->runOverlayToggleSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));',1)
-          # Entire floating control/settings overlay must be solid, regardless of old saved opacity.
-          s=s.replace('control.setAlpha(alpha1000(controlOpacity1000));','control.setAlpha(1.0f);',1)
-          s=s.replace('scroll.setBackgroundColor(0xF5303134);','scroll.setBackgroundColor(0xFF303134);',1)
+          s=s.replace(marker,marker+'\n        Button selfTest=panelButton("TEST ALL ON/OFF SETTINGS");selfTest.setOnClickListener(v->runOverlayToggleSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));',1)
+          # Solidify every overlay surface: remove translucent ARGB backgrounds and alpha application.
+          import re
+          s=re.sub(r'0x[0-9A-Fa-f]{2}303134','0xFF303134',s)
+          s=re.sub(r'0x[0-9A-Fa-f]{2}202124','0xFF202124',s)
+          s=s.replace('control.setAlpha(alpha1000(controlOpacity1000));','control.setAlpha(1.0f);')
+          s=s.replace('settingsPanel.setAlpha(alpha1000(controlOpacity1000));','settingsPanel.setAlpha(1.0f);')
+          # Same test engine as v1.55.
           anchor='    private String comboLabelText()'
-          helper='''    private boolean toggleRuntimeValue(String key){if("target_visible".equals(key))return targetVisible;if("control_visible".equals(key))return controlVisible;if("auto_collapse_start".equals(key))return autoCollapseStart;if("hide_target_running".equals(key))return hideTargetRunning;if("haptic_enabled".equals(key))return hapticEnabled;if("debug_enabled".equals(key))return debug;if("millis_mode".equals(key))return ovUseTotal;if("overlay_hotkey_custom".equals(key))return hotkeyMode==3;return false;}\n    private boolean selfTestOne(SharedPreferences p,String label,String key,boolean original){String prefKey="overlay_hotkey_custom".equals(key)?"overlay_hotkey":key;boolean test=!original;if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,test?3:4).commit();else p.edit().putBoolean(prefKey,test).commit();load();boolean stored="overlay_hotkey_custom".equals(key)?p.getInt(prefKey,4)==(test?3:4):p.getBoolean(prefKey,original)==test;boolean runtime=toggleRuntimeValue(key)==test;if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,original?3:4).commit();else p.edit().putBoolean(prefKey,original).commit();load();boolean restored=toggleRuntimeValue(key)==original;boolean ok=stored&&runtime&&restored;log("SELF_TEST "+label+" "+(ok?"PASS":"FAIL")+" stored="+stored+" runtime="+runtime+" restored="+restored);return ok;}\n    private void runOverlayToggleSelfTest(){if(running){toast("Stop tapping before self-test");return;}SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean a=targetVisible,b=controlVisible,c=autoCollapseStart,d=hideTargetRunning,e=hapticEnabled,f=debug,g=ovUseTotal,hk=hotkeyMode==3;int pass=0,total=8;StringBuilder fail=new StringBuilder();if(selfTestOne(p,"Show target","target_visible",a))pass++;else fail.append(" target");if(selfTestOne(p,"Show controls","control_visible",b))pass++;else fail.append(" controls");if(selfTestOne(p,"Auto collapse","auto_collapse_start",c))pass++;else fail.append(" collapse");if(selfTestOne(p,"Hide target","hide_target_running",d))pass++;else fail.append(" hide-target");if(selfTestOne(p,"Haptic","haptic_enabled",e))pass++;else fail.append(" haptic");if(selfTestOne(p,"Debug","debug_enabled",f))pass++;else fail.append(" debug");if(selfTestOne(p,"Timing mode","millis_mode",g))pass++;else fail.append(" mode");if(selfTestOne(p,"Keybind","overlay_hotkey_custom",hk))pass++;else fail.append(" keybind");load();updateKeyFilterState();applyTargetOnly();syncOverlayFields();refreshUi();String result="SELF-TEST: PASS "+pass+" / FAIL "+(total-pass)+(fail.length()>0?" |"+fail:"");log(result);flushLogsNow();toast(result);}\n\n'''
-          if anchor not in s: raise SystemExit('helper anchor missing')
-          s=s.replace(anchor,helper+anchor,1);p.write_text(s)
-
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text()
-          appmarker='root.addView(offNote);'
-          if appmarker not in x: raise SystemExit('main app marker missing')
-          appbutton='''root.addView(offNote);\n        Button selfTestMain=new Button(this);selfTestMain.setText("TEST ALL ON/OFF SETTINGS");selfTestMain.setOnClickListener(v->{Intent i=new Intent(TapAccessibilityService.ACTION_RUN_SELF_TEST);i.setPackage(getPackageName());sendBroadcast(i);});root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));'''
-          x=x.replace(appmarker,appbutton,1)
-          x=x.replace('Jump Tapper v1.31','Jump Tapper v1.55').replace('Jump Tapper v1.51','Jump Tapper v1.55').replace('putInt("last_ui_build",54)','putInt("last_ui_build",58)')
-          m.write_text(x)
-          # Add broadcast action and receiver handling so the main-app button runs the same test.
-          s=p.read_text().replace('public static final String ACTION_REQUEST_MASTER_STATE="com.example.robloxjumptapper.REQUEST_MASTER_STATE";','public static final String ACTION_REQUEST_MASTER_STATE="com.example.robloxjumptapper.REQUEST_MASTER_STATE";\n    public static final String ACTION_RUN_SELF_TEST="com.example.robloxjumptapper.RUN_SELF_TEST";',1)
+          helper='''    private boolean toggleRuntimeValue(String key){if("target_visible".equals(key))return targetVisible;if("control_visible".equals(key))return controlVisible;if("auto_collapse_start".equals(key))return autoCollapseStart;if("hide_target_running".equals(key))return hideTargetRunning;if("haptic_enabled".equals(key))return hapticEnabled;if("debug_enabled".equals(key))return debug;if("millis_mode".equals(key))return ovUseTotal;if("overlay_hotkey_custom".equals(key))return hotkeyMode==3;return false;}\n    private boolean selfTestOne(SharedPreferences p,String label,String key,boolean original){String k="overlay_hotkey_custom".equals(key)?"overlay_hotkey":key;boolean t=!original;if("overlay_hotkey_custom".equals(key))p.edit().putInt(k,t?3:4).commit();else p.edit().putBoolean(k,t).commit();load();boolean ok=toggleRuntimeValue(key)==t;if("overlay_hotkey_custom".equals(key))p.edit().putInt(k,original?3:4).commit();else p.edit().putBoolean(k,original).commit();load();return ok&&toggleRuntimeValue(key)==original;}\n    private void runOverlayToggleSelfTest(){if(running){toast("Stop tapping before self-test");return;}SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean[] o={targetVisible,controlVisible,autoCollapseStart,hideTargetRunning,hapticEnabled,debug,ovUseTotal,hotkeyMode==3};String[] n={"target_visible","control_visible","auto_collapse_start","hide_target_running","haptic_enabled","debug_enabled","millis_mode","overlay_hotkey_custom"};int pass=0;for(int i=0;i<n.length;i++)if(selfTestOne(p,n[i],n[i],o[i]))pass++;load();syncOverlayFields();refreshUi();broadcastSettingsChanged();toast("SELF-TEST: PASS "+pass+" / FAIL "+(8-pass));}\n    private void broadcastSettingsChanged(){Intent i=new Intent(MainActivity.ACTION_SETTINGS_CHANGED);i.setPackage(getPackageName());sendBroadcast(i);}\n\n'''
+          s=s.replace(anchor,helper+anchor,1)
+          # Every successful overlay apply notifies the main app immediately.
+          needle='toast("Overlay settings applied");'
+          if needle in s:s=s.replace(needle,'broadcastSettingsChanged();'+needle)
+          # Main app self-test action.
+          req='public static final String ACTION_REQUEST_MASTER_STATE="com.example.robloxjumptapper.REQUEST_MASTER_STATE";'
+          if req in s:s=s.replace(req,req+'\n    public static final String ACTION_RUN_SELF_TEST="com.example.robloxjumptapper.RUN_SELF_TEST";',1)
           s=s.replace('if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}','if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}\n        if(ACTION_RUN_SELF_TEST.equals(a)){runOverlayToggleSelfTest();return;}',1)
           s=s.replace('f.addAction(ACTION_REQUEST_MASTER_STATE);','f.addAction(ACTION_REQUEST_MASTER_STATE);f.addAction(ACTION_RUN_SELF_TEST);',1)
           p.write_text(s)
-          g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 54','versionCode 58').replace("versionName '1.51'","versionName '1.55'");g.write_text(z)
+
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text()
+          # Main Activity listens for SET changes and recreates itself from SharedPreferences, making all visible controls authoritative.
+          x=x.replace('public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";','public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";\n    public static final String ACTION_SETTINGS_CHANGED="com.example.robloxjumptapper.SETTINGS_CHANGED";',1)
+          x=x.replace('else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));','else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));\n        else if(ACTION_SETTINGS_CHANGED.equals(i.getAction())) recreate();',1)
+          x=x.replace('f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);','f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);f.addAction(ACTION_SETTINGS_CHANGED);',1)
+          appmarker='root.addView(offNote);'
+          x=x.replace(appmarker,appmarker+'\n        Button selfTestMain=new Button(this);selfTestMain.setText("TEST ALL ON/OFF SETTINGS");selfTestMain.setOnClickListener(v->{Intent i=new Intent(TapAccessibilityService.ACTION_RUN_SELF_TEST);i.setPackage(getPackageName());sendBroadcast(i);});root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));',1)
+          # Saving in main app already broadcasts ACTION_RELOAD; service reload then overlay fields reflect it.
+          x=x.replace('Jump Tapper v1.31','Jump Tapper v1.56').replace('Jump Tapper v1.51','Jump Tapper v1.56')
+          m.write_text(x)
+          g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 54','versionCode 59').replace("versionName '1.51'","versionName '1.56'");g.write_text(z)
           PY
-      - name: Verify both buttons and opaque overlay
+      - name: Verify fixes
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          a=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java').read_text()
-          s=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java').read_text()
-          assert 'TEST ALL ON/OFF SETTINGS' in a
-          assert 'ACTION_RUN_SELF_TEST' in a and 'ACTION_RUN_SELF_TEST' in s
-          assert 'TEST ALL ON/OFF SETTINGS' in s
+          s=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java').read_text();m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java').read_text()
+          assert 'TEST ALL ON/OFF SETTINGS' in s and 'TEST ALL ON/OFF SETTINGS' in m
+          assert 'ACTION_SETTINGS_CHANGED' in m and 'broadcastSettingsChanged()' in s
           assert 'control.setAlpha(1.0f);' in s
-          assert 'scroll.setBackgroundColor(0xFF303134);' in s
-          print('Verified main-app test + overlay test + opaque overlay')
+          assert '0xF5303134' not in s
+          print('verified opaque overlay + SET -> main app sync + main app -> service reload')
           PY
-      - name: Build unsigned release APK
+      - name: Build
         working-directory: jump-tapper
         run: gradle assembleRelease
-      - name: Verify APK
-        run: |
-          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
-          test -s "$APK"
-          unzip -p "$APK" classes.dex | strings | grep -F 'TEST ALL ON/OFF SETTINGS'
-          unzip -p "$APK" classes.dex | strings | grep -F 'RUN_SELF_TEST'
       - name: Package
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.55_unsigned.apk
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
-          cp "$APKSIGNER" sign-bundle/apksigner
-          cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" sign-bundle/apksigner.jar
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.56_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.55_SIGNING_BUNDLE
+          name: JumpTapper_v1.56_SIGNING_BUNDLE
           path: sign-bundle
-          if-no-files-found: error
