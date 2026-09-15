@@ -20,45 +20,59 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.37 navigation-safe keyboard fixes
+      - name: Apply v1.38 normal-window settings fix
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
+          # SET no longer opens a focusable accessibility-overlay editor.
+          # It launches a normal Android dialog Activity, so Samsung owns the
+          # keyboard/nav bar and Home, Recents and keyboard-hide remain system UI.
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
           s=p.read_text()
-          replacements={
-            'topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));':'topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));',
-            'masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",58);':'masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",46);',
-            'startStop=smallButton("START",80);':'startStop=smallButton("START",62);',
-            'moveButton=smallButton(moveMode?"LOCK":"MOVE",66);':'moveButton=smallButton(moveMode?"LOCK":"MOVE",52);',
-            'tapButton=smallButton("TAP",54);':'tapButton=smallButton("TAP",44);',
-            'targetButton=smallButton("J",42);':'targetButton=smallButton("J",34);',
-            'settingsButton=smallButton("SET",54);':'settingsButton=smallButton("SET",44);',
-            'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.90f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.72f);':'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.96f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.56f);',
-            'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);controlParams.gravity':'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);controlParams.gravity',
-            'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});return e;}':'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});e.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){hideOverlayKeyboard();return true;}return false;});return e;}',
-            'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}':'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;controlParams.flags&=~WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;controlParams.flags&=~WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;controlParams.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE|WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE;int screenH=getResources().getDisplayMetrics().heightPixels;int safeBottom=dp(120);int top=Math.max(0,controlParams.y);int rowH=scaled(46);int available=Math.max(dp(200),screenH-top-rowH-safeBottom);if(settingsScroll!=null){android.view.ViewGroup.LayoutParams lp=settingsScroll.getLayoutParams();lp.height=Math.min((int)(screenH*0.56f),available);settingsScroll.setLayoutParams(lp);}try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}',
-            'else if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}':'else if(controlParams!=null){hideOverlayKeyboard();controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;controlParams.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING|WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}',
-            'settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));':'settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));\n        Button hideKeyboard=panelButton("▼ HIDE KEYBOARD");hideKeyboard.setOnClickListener(v->hideOverlayKeyboard());settingsContent.addView(hideKeyboard,new LinearLayout.LayoutParams(-1,dp(48)));',
-            'ovTotal=overlayNumber(intervalMs,8);settingsContent.addView(settingRow("Total ms 0–86400000",ovTotal));':'ovTotal=overlayNumber(intervalMs,8);ovTotal.setOnFocusChangeListener((v,has)->{if(has){ovUseTotal=true;updateModeUi();}});settingsContent.addView(settingRow("Total ms 0–86400000",ovTotal));',
-            'private void updateModeUi(){if(ovMode!=null)ovMode.setText(ovUseTotal?"MODE: TOTAL MS":"MODE: D/H/M/S/MS");if(ovTotal!=null)ovTotal.setEnabled(ovUseTotal);boolean split=!ovUseTotal;if(ovDays!=null)ovDays.setEnabled(split);if(ovHours!=null)ovHours.setEnabled(split);if(ovMinutes!=null)ovMinutes.setEnabled(split);if(ovSeconds!=null)ovSeconds.setEnabled(split);if(ovMillis!=null)ovMillis.setEnabled(split);}':'private void updateModeUi(){if(ovMode!=null)ovMode.setText(ovUseTotal?"MODE: TOTAL MS":"MODE: D/H/M/S/MS");if(ovTotal!=null){ovTotal.setEnabled(true);ovTotal.setClickable(true);ovTotal.setFocusableInTouchMode(true);ovTotal.setAlpha(ovUseTotal?1f:0.65f);}boolean split=!ovUseTotal;if(ovDays!=null){ovDays.setEnabled(true);ovDays.setAlpha(split?1f:0.65f);}if(ovHours!=null){ovHours.setEnabled(true);ovHours.setAlpha(split?1f:0.65f);}if(ovMinutes!=null){ovMinutes.setEnabled(true);ovMinutes.setAlpha(split?1f:0.65f);}if(ovSeconds!=null){ovSeconds.setEnabled(true);ovSeconds.setAlpha(split?1f:0.65f);}if(ovMillis!=null){ovMillis.setEnabled(true);ovMillis.setAlpha(split?1f:0.65f);}}\n    private void hideOverlayKeyboard(){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);View f=control!=null?control.findFocus():null;if(im!=null){android.os.IBinder token=f!=null?f.getWindowToken():(control!=null?control.getWindowToken():null);if(token!=null)im.hideSoftInputFromWindow(token,android.view.inputmethod.InputMethodManager.HIDE_NOT_ALWAYS);}if(f!=null)f.clearFocus();if(control!=null){control.setFocusableInTouchMode(true);control.requestFocus();}}'
-          }
-          for old,new in replacements.items():
-              if old not in s: raise SystemExit('Expected source text not found: '+old[:120])
-              s=s.replace(old,new,1)
-          marker='timingCell(timeRow,"d",ovDays);timingCell(timeRow,"h",ovHours);timingCell(timeRow,"m",ovMinutes);timingCell(timeRow,"s",ovSeconds);timingCell(timeRow,"ms",ovMillis);settingsContent.addView(timeRow);'
-          repl=marker+'\n        android.view.View.OnFocusChangeListener splitFocus=(v,has)->{if(has){ovUseTotal=false;updateModeUi();}};ovDays.setOnFocusChangeListener(splitFocus);ovHours.setOnFocusChangeListener(splitFocus);ovMinutes.setOnFocusChangeListener(splitFocus);ovSeconds.setOnFocusChangeListener(splitFocus);ovMillis.setOnFocusChangeListener(splitFocus);'
-          if marker not in s: raise SystemExit('timing row marker not found')
-          s=s.replace(marker,repl,1)
+          s=s.replace('topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));','topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));',1)
+          s=s.replace('masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",58);','masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",46);',1)
+          s=s.replace('startStop=smallButton("START",80);','startStop=smallButton("START",62);',1)
+          s=s.replace('moveButton=smallButton(moveMode?"LOCK":"MOVE",66);','moveButton=smallButton(moveMode?"LOCK":"MOVE",52);',1)
+          s=s.replace('tapButton=smallButton("TAP",54);','tapButton=smallButton("TAP",44);',1)
+          s=s.replace('targetButton=smallButton("J",42);','targetButton=smallButton("J",34);',1)
+          old='settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
+          new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->{Intent si=new Intent(this,OverlaySettingsActivity.class);si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);startActivity(si);});'
+          if old not in s: raise SystemExit('SET listener marker not found')
+          s=s.replace(old,new,1)
           p.write_text(s)
+
+          # A separate normal Android window reuses the complete MainActivity settings UI.
+          a=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/OverlaySettingsActivity.java')
+          a.write_text('''package com.example.robloxjumptapper;\n\nimport android.os.Bundle;\nimport android.view.WindowManager;\n\npublic class OverlaySettingsActivity extends MainActivity {\n    @Override protected void onCreate(Bundle b){\n        super.onCreate(b);\n        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);\n        setTitle("Jump Tapper Settings");\n    }\n}\n''')
+
+          manifest=Path('jump-tapper/app/src/main/AndroidManifest.xml')
+          ms=manifest.read_text()
+          marker='''        <activity\n            android:name=".MainActivity"\n            android:exported="true">'''
+          addition='''        <activity\n            android:name=".OverlaySettingsActivity"\n            android:exported="false"\n            android:excludeFromRecents="true"\n            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"\n            android:windowSoftInputMode="adjustResize" />\n\n'''
+          if marker not in ms: raise SystemExit('manifest activity marker not found')
+          manifest.write_text(ms.replace(marker,addition+marker,1))
+
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
-          a=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.37",28,true);',1)
-          marker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
-          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",40).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
-          if marker not in a: raise SystemExit('MainActivity reload marker not found')
-          m.write_text(a.replace(marker,replacement,1))
-          g=Path('jump-tapper/app/build.gradle'); original=g.read_text(); t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 40\n        versionName '1.37'")
-          if t==original: raise SystemExit('Version text not found')
+          text=m.read_text()
+          text=text.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.38",28,true);',1)
+          # Make Total MS immediately usable in the normal settings window.
+          text=text.replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
+          # Any split field switches back to split timing.
+          splitmarker='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");'
+          splitrepl=splitmarker+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);'
+          if splitmarker not in text: raise SystemExit('split timing marker not found')
+          text=text.replace(splitmarker,splitrepl,1)
+          # Build marker for automatic service refresh.
+          reloadmarker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
+          reloadrepl='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",41).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          if reloadmarker not in text: raise SystemExit('reload marker not found')
+          m.write_text(text.replace(reloadmarker,reloadrepl,1))
+
+          g=Path('jump-tapper/app/build.gradle')
+          original=g.read_text()
+          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 41\n        versionName '1.38'")
+          if t==original: raise SystemExit('version marker not found')
           g.write_text(t)
           PY
       - name: Build unsigned release APK
@@ -67,7 +81,7 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.37_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.38_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -75,6 +89,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.37_SIGNING_BUNDLE
+          name: JumpTapper_v1.38_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
