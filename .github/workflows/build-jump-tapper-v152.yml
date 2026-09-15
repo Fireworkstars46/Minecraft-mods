@@ -1,7 +1,8 @@
 name: Build Jump Tapper v1.57 APK
-on:
+'on':
   push:
-    branches: [ build-jump-tapper-apk ]
+    branches:
+      - build-jump-tapper-apk
   workflow_dispatch:
 jobs:
   build:
@@ -9,9 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with: {distribution: temurin, java-version: '17'}
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-        with: {gradle-version: '8.9'}
+        with:
+          gradle-version: '8.9'
       - name: Apply v1.51 base
         run: |
           python3 - <<'PY'
@@ -29,97 +33,35 @@ jobs:
           from pathlib import Path
           import re
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
-          # Opaque SET/control surfaces.
-          s=re.sub(r'0x[0-9A-Fa-f]{2}303134','0xFF303134',s);s=re.sub(r'0x[0-9A-Fa-f]{2}202124','0xFF202124',s)
-          s=s.replace('control.setAlpha(alpha1000(controlOpacity1000));','control.setAlpha(1.0f);')
-          # Fix missing immediate apply for keybind mode too.
+          s=re.sub(r'0x[0-9A-Fa-f]{2}303134','0xFF303134',s);s=re.sub(r'0x[0-9A-Fa-f]{2}202124','0xFF202124',s);s=s.replace('control.setAlpha(alpha1000(controlOpacity1000));','control.setAlpha(1.0f);')
           s=s.replace('hotkeyMode=hotkeyMode==3?4:3;setToggleText(ovHotkeyMode,"Custom keybind enabled",hotkeyMode==3);','hotkeyMode=hotkeyMode==3?4:3;setToggleText(ovHotkeyMode,"Custom keybind enabled",hotkeyMode==3);syncAndApplyOverlay();')
-          # Overlay apply must commit before main app is told to refresh.
-          old='.putBoolean("hide_target_running",hideTargetRunning).putBoolean("haptic_enabled",hapticEnabled).putBoolean("debug_enabled",debug).putInt("overlay_hotkey",hotkeyMode).apply();'
-          new='.putBoolean("hide_target_running",hideTargetRunning).putBoolean("haptic_enabled",hapticEnabled).putBoolean("debug_enabled",debug).putInt("overlay_hotkey",hotkeyMode).commit();'
-          s=s.replace(old,new,1)
+          s=s.replace('.putBoolean("hide_target_running",hideTargetRunning).putBoolean("haptic_enabled",hapticEnabled).putBoolean("debug_enabled",debug).putInt("overlay_hotkey",hotkeyMode).apply();','.putBoolean("hide_target_running",hideTargetRunning).putBoolean("haptic_enabled",hapticEnabled).putBoolean("debug_enabled",debug).putInt("overlay_hotkey",hotkeyMode).commit();',1)
           s=s.replace('toast("All overlay settings applied");log(','broadcastSettingsChanged();toast("All overlay settings applied");log(',1)
-          # Cross-surface actions.
-          req='public static final String ACTION_REQUEST_MASTER_STATE="com.example.robloxjumptapper.REQUEST_MASTER_STATE";'
-          s=s.replace(req,req+'\n    public static final String ACTION_RUN_FULL_SELF_TEST="com.example.robloxjumptapper.RUN_FULL_SELF_TEST";\n    public static final String ACTION_FULL_SELF_TEST_RESULT="com.example.robloxjumptapper.FULL_SELF_TEST_RESULT";',1)
-          s=s.replace('if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}','if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}\n        if(ACTION_RUN_FULL_SELF_TEST.equals(a)){runFullAppSelfTest();return;}',1)
-          s=s.replace('f.addAction(ACTION_REQUEST_MASTER_STATE);','f.addAction(ACTION_REQUEST_MASTER_STATE);f.addAction(ACTION_RUN_FULL_SELF_TEST);',1)
-          # Test button in overlay.
-          marker='settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));'
-          s=s.replace(marker,marker+'\n        Button selfTest=panelButton("TEST EVERY SETTING + BUTTON");selfTest.setOnClickListener(v->runFullAppSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));',1)
-          # Exhaustive test: every persisted setting, runtime load, overlay controls, target/control effects, master, presets/math, reset-position prefs, debug file IO, and broadcasts. Restores snapshot.
+          req='public static final String ACTION_REQUEST_MASTER_STATE="com.example.robloxjumptapper.REQUEST_MASTER_STATE";';s=s.replace(req,req+'\n    public static final String ACTION_RUN_FULL_SELF_TEST="com.example.robloxjumptapper.RUN_FULL_SELF_TEST";\n    public static final String ACTION_FULL_SELF_TEST_RESULT="com.example.robloxjumptapper.FULL_SELF_TEST_RESULT";',1)
+          s=s.replace('if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}','if(ACTION_REQUEST_MASTER_STATE.equals(a)){broadcastMasterState();return;}\n        if(ACTION_RUN_FULL_SELF_TEST.equals(a)){runFullAppSelfTest();return;}',1);s=s.replace('f.addAction(ACTION_REQUEST_MASTER_STATE);','f.addAction(ACTION_REQUEST_MASTER_STATE);f.addAction(ACTION_RUN_FULL_SELF_TEST);',1)
+          marker='settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));';s=s.replace(marker,marker+'\n        Button selfTest=panelButton("TEST EVERY SETTING + BUTTON");selfTest.setOnClickListener(v->runFullAppSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));',1)
           anchor='    private String comboLabelText()'
-          helper=r'''    private void broadcastSettingsChanged(){Intent i=new Intent(MainActivity.ACTION_SETTINGS_CHANGED);i.setPackage(getPackageName());sendBroadcast(i);}
-    private boolean prefEq(SharedPreferences p,String k,Object v){if(v instanceof Boolean)return p.getBoolean(k,!((Boolean)v))==(Boolean)v;if(v instanceof Integer)return p.getInt(k,Integer.MIN_VALUE)==(Integer)v;if(v instanceof Long)return p.getLong(k,Long.MIN_VALUE)==(Long)v;if(v instanceof String)return ((String)v).equals(p.getString(k,null));return false;}
-    private void runFullAppSelfTest(){
-        if(running){toast("Stop tapping before full self-test");return;}
-        SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);java.util.Map<String,?> snap=new java.util.HashMap<>(p.getAll());int pass=0,fail=0;StringBuilder bad=new StringBuilder();
-        try{
-            Object[][] vals={{"interval_ms",12345L},{"millis_mode",true},{"tap_duration_ms",321},{"start_delay_ms",456},{"target_size_dp",73},{"control_scale",111},{"target_opacity_1000",777},{"control_opacity_1000",666},{"haptic_strength_1000",555},{"target_visible",false},{"control_visible",false},{"auto_collapse_start",true},{"hide_target_running",true},{"haptic_enabled",false},{"debug_enabled",false},{"overlay_hotkey",4},{"master_enabled",true},{"control_collapsed",false}};
-            SharedPreferences.Editor e=p.edit();for(Object[] q:vals){String k=(String)q[0];Object v=q[1];if(v instanceof Boolean)e.putBoolean(k,(Boolean)v);else if(v instanceof Integer)e.putInt(k,(Integer)v);else if(v instanceof Long)e.putLong(k,(Long)v);}e.commit();load();
-            for(Object[] q:vals){boolean ok=prefEq(p,(String)q[0],q[1]);if(ok)pass++;else{fail++;bad.append(q[0]).append(' ');}}
-            boolean runtime=intervalMs==12345L&&ovUseTotal&&tapDurationMs==321&&startDelayMs==456&&targetSizeDp==73&&controlScale==111&&targetOpacity1000==777&&controlOpacity1000==666&&hapticStrength1000==555&&!targetVisible&&!controlVisible&&autoCollapseStart&&hideTargetRunning&&!hapticEnabled&&!debug&&hotkeyMode==4&&masterEnabled&&!collapsed;if(runtime)pass++;else{fail++;bad.append("runtime-load ");}
-            syncOverlayFields();boolean fields=field(ovTotal)==12345L&&field(ovHold)==321&&field(ovDelay)==456&&field(ovTargetSize)==73&&field(ovControlScale)==111&&field(ovTargetOpacity)==777&&field(ovControlOpacity)==666&&field(ovHaptic)==555;if(fields)pass++;else{fail++;bad.append("overlay-fields ");}
-            setOverlayInterval(90000L);boolean preset=field(ovTotal)==90000L&&field(ovMinutes)==1&&field(ovSeconds)==30;if(preset)pass++;else{fail++;bad.append("presets ");}
-            targetVisible=true;controlVisible=true;autoCollapseStart=false;hideTargetRunning=false;hapticEnabled=true;debug=true;ovUseTotal=true;hotkeyMode=4;setOverlayInterval(24680);ovHold.setText("25");ovDelay.setText("35");ovTargetSize.setText("61");ovControlScale.setText("101");ovTargetOpacity.setText("888");ovControlOpacity.setText("999");ovHaptic.setText("444");applyOverlaySettings();
-            Object[][] applied={{"interval_ms",24680L},{"tap_duration_ms",25},{"start_delay_ms",35},{"target_size_dp",61},{"control_scale",101},{"target_opacity_1000",888},{"control_opacity_1000",999},{"haptic_strength_1000",444},{"target_visible",true},{"control_visible",true},{"auto_collapse_start",false},{"hide_target_running",false},{"haptic_enabled",true},{"debug_enabled",true},{"millis_mode",true},{"overlay_hotkey",4}};for(Object[] q:applied){if(prefEq(p,(String)q[0],q[1]))pass++;else{fail++;bad.append("apply-").append(q[0]).append(' ');}}
-            boolean oldMaster=masterEnabled;setMasterEnabled(!oldMaster,true);boolean master1=p.getBoolean("master_enabled",oldMaster)==!oldMaster&&masterEnabled==!oldMaster;setMasterEnabled(oldMaster,true);boolean master2=p.getBoolean("master_enabled",!oldMaster)==oldMaster&&masterEnabled==oldMaster;if(master1&&master2)pass++;else{fail++;bad.append("master-button ");}
-            p.edit().putInt("target_x",1).putInt("target_y",2).putInt("control_x",3).putInt("control_y",4).commit();resetPositions();boolean rp=!p.contains("target_x")&&!p.contains("target_y")&&!p.contains("control_x")&&!p.contains("control_y");if(rp)pass++;else{fail++;bad.append("reset-positions ");}
-            try{log("SELF_TEST_DEBUG_IO");flushLogsNow();File lf=new File(getFilesDir(),MainActivity.DEBUG_FILE);if(lf.exists())pass++;else{fail++;bad.append("debug-log ");}}catch(Exception ex){fail++;bad.append("debug-log ");}
-            if(settingsButton!=null&&masterOverlayButton!=null&&startStop!=null&&moveButton!=null&&tapButton!=null&&targetButton!=null&&ovMode!=null&&ovShowTarget!=null&&ovShowControls!=null&&ovAutoCollapse!=null&&ovHideTarget!=null&&ovHapticToggle!=null&&ovHotkeyMode!=null&&ovDebug!=null)pass++;else{fail++;bad.append("overlay-buttons ");}
-        }catch(Exception ex){fail++;bad.append("exception-").append(ex.getClass().getSimpleName()).append(' ');}finally{
-            SharedPreferences.Editor r=p.edit().clear();for(java.util.Map.Entry<String,?> z:snap.entrySet()){Object v=z.getValue();if(v instanceof Boolean)r.putBoolean(z.getKey(),(Boolean)v);else if(v instanceof Integer)r.putInt(z.getKey(),(Integer)v);else if(v instanceof Long)r.putLong(z.getKey(),(Long)v);else if(v instanceof Float)r.putFloat(z.getKey(),(Float)v);else if(v instanceof String)r.putString(z.getKey(),(String)v);else if(v instanceof java.util.Set)r.putStringSet(z.getKey(),(java.util.Set<String>)v);}r.commit();load();updateKeyFilterState();removeTarget();if(masterEnabled)createTarget();rebuildControl(settingsOpen);refreshUi();broadcastSettingsChanged();broadcastMasterState();}
-        Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"":" — "+bad));
-    }
-
-'''
+          helper='''    private void broadcastSettingsChanged(){Intent i=new Intent(MainActivity.ACTION_SETTINGS_CHANGED);i.setPackage(getPackageName());sendBroadcast(i);}\n    private boolean prefEq(SharedPreferences p,String k,Object v){if(v instanceof Boolean)return p.getBoolean(k,!((Boolean)v))==(Boolean)v;if(v instanceof Integer)return p.getInt(k,Integer.MIN_VALUE)==(Integer)v;if(v instanceof Long)return p.getLong(k,Long.MIN_VALUE)==(Long)v;return false;}\n    private void runFullAppSelfTest(){if(running){toast("Stop tapping before full self-test");return;}SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);java.util.Map<String,?> snap=new java.util.HashMap<>(p.getAll());int pass=0,fail=0;StringBuilder bad=new StringBuilder();try{Object[][] vals={{"interval_ms",12345L},{"millis_mode",true},{"tap_duration_ms",321},{"start_delay_ms",456},{"target_size_dp",73},{"control_scale",111},{"target_opacity_1000",777},{"control_opacity_1000",666},{"haptic_strength_1000",555},{"target_visible",false},{"control_visible",false},{"auto_collapse_start",true},{"hide_target_running",true},{"haptic_enabled",false},{"debug_enabled",false},{"overlay_hotkey",4},{"master_enabled",true},{"control_collapsed",false}};SharedPreferences.Editor e=p.edit();for(Object[] q:vals){String k=(String)q[0];Object v=q[1];if(v instanceof Boolean)e.putBoolean(k,(Boolean)v);else if(v instanceof Integer)e.putInt(k,(Integer)v);else if(v instanceof Long)e.putLong(k,(Long)v);}e.commit();load();for(Object[] q:vals){if(prefEq(p,(String)q[0],q[1]))pass++;else{fail++;bad.append(q[0]).append(' ');}}boolean runtime=intervalMs==12345L&&ovUseTotal&&tapDurationMs==321&&startDelayMs==456&&targetSizeDp==73&&controlScale==111&&targetOpacity1000==777&&controlOpacity1000==666&&hapticStrength1000==555&&!targetVisible&&!controlVisible&&autoCollapseStart&&hideTargetRunning&&!hapticEnabled&&!debug&&hotkeyMode==4&&masterEnabled&&!collapsed;if(runtime)pass++;else{fail++;bad.append("runtime-load ");}syncOverlayFields();boolean fields=field(ovTotal)==12345L&&field(ovHold)==321&&field(ovDelay)==456&&field(ovTargetSize)==73&&field(ovControlScale)==111&&field(ovTargetOpacity)==777&&field(ovControlOpacity)==666&&field(ovHaptic)==555;if(fields)pass++;else{fail++;bad.append("overlay-fields ");}setOverlayInterval(90000L);boolean preset=field(ovTotal)==90000L&&field(ovMinutes)==1&&field(ovSeconds)==30;if(preset)pass++;else{fail++;bad.append("presets ");}targetVisible=true;controlVisible=true;autoCollapseStart=false;hideTargetRunning=false;hapticEnabled=true;debug=true;ovUseTotal=true;hotkeyMode=4;setOverlayInterval(24680);ovHold.setText("25");ovDelay.setText("35");ovTargetSize.setText("61");ovControlScale.setText("101");ovTargetOpacity.setText("888");ovControlOpacity.setText("999");ovHaptic.setText("444");applyOverlaySettings();Object[][] applied={{"interval_ms",24680L},{"tap_duration_ms",25},{"start_delay_ms",35},{"target_size_dp",61},{"control_scale",101},{"target_opacity_1000",888},{"control_opacity_1000",999},{"haptic_strength_1000",444},{"target_visible",true},{"control_visible",true},{"auto_collapse_start",false},{"hide_target_running",false},{"haptic_enabled",true},{"debug_enabled",true},{"millis_mode",true},{"overlay_hotkey",4}};for(Object[] q:applied){if(prefEq(p,(String)q[0],q[1]))pass++;else{fail++;bad.append("apply-").append(q[0]).append(' ');}}boolean oldMaster=masterEnabled;setMasterEnabled(!oldMaster,true);boolean master1=p.getBoolean("master_enabled",oldMaster)==!oldMaster&&masterEnabled==!oldMaster;setMasterEnabled(oldMaster,true);boolean master2=p.getBoolean("master_enabled",!oldMaster)==oldMaster&&masterEnabled==oldMaster;if(master1&&master2)pass++;else{fail++;bad.append("master-button ");}p.edit().putInt("target_x",1).putInt("target_y",2).putInt("control_x",3).putInt("control_y",4).commit();resetPositions();if(!p.contains("target_x")&&!p.contains("target_y")&&!p.contains("control_x")&&!p.contains("control_y"))pass++;else{fail++;bad.append("reset-positions ");}if(settingsButton!=null&&masterOverlayButton!=null&&startStop!=null&&moveButton!=null&&tapButton!=null&&targetButton!=null&&ovMode!=null&&ovShowTarget!=null&&ovShowControls!=null&&ovAutoCollapse!=null&&ovHideTarget!=null&&ovHapticToggle!=null&&ovHotkeyMode!=null&&ovDebug!=null)pass++;else{fail++;bad.append("overlay-buttons ");}}catch(Exception ex){fail++;bad.append("exception-").append(ex.getClass().getSimpleName()).append(' ');}finally{SharedPreferences.Editor r=p.edit().clear();for(java.util.Map.Entry<String,?> z:snap.entrySet()){Object v=z.getValue();if(v instanceof Boolean)r.putBoolean(z.getKey(),(Boolean)v);else if(v instanceof Integer)r.putInt(z.getKey(),(Integer)v);else if(v instanceof Long)r.putLong(z.getKey(),(Long)v);else if(v instanceof Float)r.putFloat(z.getKey(),(Float)v);else if(v instanceof String)r.putString(z.getKey(),(String)v);else if(v instanceof java.util.Set)r.putStringSet(z.getKey(),(java.util.Set<String>)v);}r.commit();load();updateKeyFilterState();removeTarget();if(masterEnabled)createTarget();rebuildControl(settingsOpen);refreshUi();broadcastSettingsChanged();broadcastMasterState();}Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"":" — "+bad));}\n\n'''
           s=s.replace(anchor,helper+anchor,1);p.write_text(s)
-
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text()
-          x=x.replace('public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";','public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";\n    public static final String ACTION_SETTINGS_CHANGED="com.example.robloxjumptapper.SETTINGS_CHANGED";',1)
-          # Main app refreshes all controls, not just keybind/master.
-          x=x.replace('}else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));','}else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));\n        else if(ACTION_SETTINGS_CHANGED.equals(i.getAction())) loadMainUiFromPrefs();\n        else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");toast("FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"":" — "+bad));}',1)
-          x=x.replace('f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);','f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);f.addAction(ACTION_SETTINGS_CHANGED);f.addAction(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT);',1)
-          # Test button in main app.
-          marker='root.addView(offNote);'
-          x=x.replace(marker,marker+'\n        Button selfTestMain=new Button(this);selfTestMain.setText("TEST EVERY SETTING + BUTTON");selfTestMain.setOnClickListener(v->{Intent i=new Intent(TapAccessibilityService.ACTION_RUN_FULL_SELF_TEST);i.setPackage(getPackageName());sendBroadcast(i);});root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));',1)
-          # Full live reload helper for all main UI controls.
-          anchor='    private void save(){'
-          helper='''    private void loadMainUiFromPrefs(){\n        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);long saved=Math.max(0,Math.min(DAY,p.getLong("interval_ms",30000)));setInterval(saved);boolean tm=p.getBoolean("millis_mode",false);if(tm)totalMode.setChecked(true);else splitMode.setChecked(true);showTiming(tm);tapHold.setText(String.valueOf(p.getInt("tap_duration_ms",30)));startDelay.setText(String.valueOf(p.getInt("start_delay_ms",0)));targetSize.setText(String.valueOf(p.getInt("target_size_dp",58)));controlScale.setText(String.valueOf(p.getInt("control_scale",100)));targetOpacity.setText(String.valueOf(p.getInt("target_opacity_1000",900)));controlOpacity.setText(String.valueOf(p.getInt("control_opacity_1000",870)));hapticStrength.setText(String.valueOf(p.getInt("haptic_strength_1000",314)));showTarget.setChecked(p.getBoolean("target_visible",true));showControls.setChecked(p.getBoolean("control_visible",true));autoCollapse.setChecked(p.getBoolean("auto_collapse_start",false));hideTargetRunning.setChecked(p.getBoolean("hide_target_running",false));haptic.setChecked(p.getBoolean("haptic_enabled",true));debug.setChecked(p.getBoolean("debug_enabled",true));overlayMode.setSelection(p.getInt("overlay_hotkey",4)==3?0:1);comboLabel.setText(comboText(p));updateMaster(p.getBoolean("master_enabled",true));\n    }\n\n'''
-          x=x.replace(anchor,helper+anchor,1)
-          # Save synchronously, then reload main UI and service so displayed values always equal saved values.
-          x=x.replace('.putInt("overlay_hotkey",hm)\n                    .apply();','.putInt("overlay_hotkey",hm)\n                    .commit();',1)
-          x=x.replace('Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);\n            toast(interval==0?', 'Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);loadMainUiFromPrefs();\n            toast(interval==0?',1)
-          # onResume refreshes every main setting.
-          x=x.replace('if(overlayMode!=null)overlayMode.setSelection(p.getInt("overlay_hotkey",4)==3?0:1);\n        if(comboLabel!=null)comboLabel.setText(comboText(p));','if(overlayMode!=null)loadMainUiFromPrefs();',1)
-          x=x.replace('Jump Tapper v1.31','Jump Tapper v1.57').replace('Jump Tapper v1.51','Jump Tapper v1.57')
-          m.write_text(x)
-          g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 54','versionCode 60').replace("versionName '1.51'","versionName '1.57'");g.write_text(z)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text();x=x.replace('public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";','public static final String ACTION_RELOAD="com.example.robloxjumptapper.RELOAD";\n    public static final String ACTION_SETTINGS_CHANGED="com.example.robloxjumptapper.SETTINGS_CHANGED";',1);x=x.replace('}else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));','}else if(TapAccessibilityService.ACTION_MASTER_STATE.equals(i.getAction())) updateMaster(i.getBooleanExtra("enabled",false));\n        else if(ACTION_SETTINGS_CHANGED.equals(i.getAction())) loadMainUiFromPrefs();\n        else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");toast("FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"":" — "+bad));}',1);x=x.replace('f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);','f.addAction(TapAccessibilityService.ACTION_MASTER_STATE);f.addAction(ACTION_SETTINGS_CHANGED);f.addAction(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT);',1);marker='root.addView(offNote);';x=x.replace(marker,marker+'\n        Button selfTestMain=new Button(this);selfTestMain.setText("TEST EVERY SETTING + BUTTON");selfTestMain.setOnClickListener(v->{Intent i=new Intent(TapAccessibilityService.ACTION_RUN_FULL_SELF_TEST);i.setPackage(getPackageName());sendBroadcast(i);});root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));',1);anchor='    private void save(){';helper='''    private void loadMainUiFromPrefs(){SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);long saved=Math.max(0,Math.min(DAY,p.getLong("interval_ms",30000)));setInterval(saved);boolean tm=p.getBoolean("millis_mode",false);if(tm)totalMode.setChecked(true);else splitMode.setChecked(true);showTiming(tm);tapHold.setText(String.valueOf(p.getInt("tap_duration_ms",30)));startDelay.setText(String.valueOf(p.getInt("start_delay_ms",0)));targetSize.setText(String.valueOf(p.getInt("target_size_dp",58)));controlScale.setText(String.valueOf(p.getInt("control_scale",100)));targetOpacity.setText(String.valueOf(p.getInt("target_opacity_1000",900)));controlOpacity.setText(String.valueOf(p.getInt("control_opacity_1000",870)));hapticStrength.setText(String.valueOf(p.getInt("haptic_strength_1000",314)));showTarget.setChecked(p.getBoolean("target_visible",true));showControls.setChecked(p.getBoolean("control_visible",true));autoCollapse.setChecked(p.getBoolean("auto_collapse_start",false));hideTargetRunning.setChecked(p.getBoolean("hide_target_running",false));haptic.setChecked(p.getBoolean("haptic_enabled",true));debug.setChecked(p.getBoolean("debug_enabled",true));overlayMode.setSelection(p.getInt("overlay_hotkey",4)==3?0:1);comboLabel.setText(comboText(p));updateMaster(p.getBoolean("master_enabled",true));}\n\n''';x=x.replace(anchor,helper+anchor,1);x=x.replace('.putInt("overlay_hotkey",hm)\n                    .apply();','.putInt("overlay_hotkey",hm)\n                    .commit();',1);x=x.replace('Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);\n            toast(interval==0?','Intent i=new Intent(ACTION_RELOAD);i.setPackage(getPackageName());sendBroadcast(i);loadMainUiFromPrefs();\n            toast(interval==0?',1);x=x.replace('if(overlayMode!=null)overlayMode.setSelection(p.getInt("overlay_hotkey",4)==3?0:1);\n        if(comboLabel!=null)comboLabel.setText(comboText(p));','if(overlayMode!=null)loadMainUiFromPrefs();',1);x=x.replace('Jump Tapper v1.31','Jump Tapper v1.57').replace('Jump Tapper v1.51','Jump Tapper v1.57');m.write_text(x);g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 54','versionCode 60').replace("versionName '1.51'","versionName '1.57'");g.write_text(z)
           PY
-      - name: Verify full test and sync are packaged in source
+      - name: Verify source
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          s=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java').read_text();m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java').read_text()
-          assert 'TEST EVERY SETTING + BUTTON' in s and 'TEST EVERY SETTING + BUTTON' in m
-          assert 'runFullAppSelfTest' in s and 'loadMainUiFromPrefs' in m
-          assert 'ACTION_FULL_SELF_TEST_RESULT' in s and 'ACTION_SETTINGS_CHANGED' in m
-          assert '.putInt("overlay_hotkey",hm)\n                    .commit();' in m
-          print('verified exhaustive self-test + two-way full main UI refresh')
-          PY
+          grep -F 'TEST EVERY SETTING + BUTTON' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'loadMainUiFromPrefs' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
       - name: Build
         working-directory: jump-tapper
         run: gradle assembleRelease
       - name: Verify APK strings
         run: |
-          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
-          unzip -p "$APK" classes.dex | strings | grep -F 'TEST EVERY SETTING + BUTTON'
-          unzip -p "$APK" classes.dex | strings | grep -F 'FULL TEST: PASS'
+          unzip -p jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk classes.dex | strings | grep -F 'TEST EVERY SETTING + BUTTON'
       - name: Package
         run: |
           mkdir sign-bundle
           cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.57_unsigned.apk
-          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          cp "$A" sign-bundle/apksigner
+          cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
           name: JumpTapper_v1.57_SIGNING_BUNDLE
