@@ -20,7 +20,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.34 overlay and keyboard fixes
+      - name: Apply v1.35 overlay keyboard and automatic reload fixes
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -41,13 +41,22 @@ jobs:
             'else if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}':'else if(controlParams!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null&&control!=null)im.hideSoftInputFromWindow(control.getWindowToken(),0);if(control!=null)control.clearFocus();controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}'
           }
           for old,new in replacements.items():
-              if old not in s:
-                  raise SystemExit('Expected source text not found: '+old[:100])
+              if old not in s: raise SystemExit('Expected source text not found: '+old[:100])
               s=s.replace(old,new,1)
           p.write_text(s)
+
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
+          a=m.read_text()
+          a=a.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.35",28,true);',1)
+          marker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
+          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",38).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent r=new Intent(ACTION_RELOAD);r.setPackage(getPackageName());sendBroadcast(r);requestMaster();},700L);\n        requestMaster();'
+          if marker not in a: raise SystemExit('MainActivity reload marker not found')
+          a=a.replace(marker,replacement,1)
+          m.write_text(a)
+
           g=Path('jump-tapper/app/build.gradle')
           original=g.read_text()
-          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 37\n        versionName '1.34'")
+          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 38\n        versionName '1.35'")
           if t==original: raise SystemExit('Version text not found')
           g.write_text(t)
           PY
@@ -57,7 +66,7 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.34_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.35_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -65,6 +74,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.34_SIGNING_BUNDLE
+          name: JumpTapper_v1.35_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
