@@ -21,46 +21,26 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
-          s=p.read_text()
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
           for old,new in [('topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));','topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));'),('masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",58);','masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",46);'),('startStop=smallButton("START",80);','startStop=smallButton("START",62);'),('moveButton=smallButton(moveMode?"LOCK":"MOVE",66);','moveButton=smallButton(moveMode?"LOCK":"MOVE",52);'),('tapButton=smallButton("TAP",54);','tapButton=smallButton("TAP",44);'),('targetButton=smallButton("J",42);','targetButton=smallButton("J",34);')]: s=s.replace(old,new,1)
-          old='settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
-          new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
+          old='settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));';new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
           if old not in s: raise SystemExit('SET marker missing')
           s=s.replace(old,new,1)
           oldcp='controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);'
           newcp='int controlWindowType=android.provider.Settings.canDrawOverlays(this)?WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY:WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,controlWindowType,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);'
           if oldcp not in s: raise SystemExit('control params marker missing')
-          s=s.replace(oldcp,newcp,1)
-          # Keep settings truly inside the same control view/window. Application overlay focus is used only while SET is open.
-          s=s.replace('settingsContent.setPadding(dp(8),dp(6),dp(8),dp(12));','settingsContent.setPadding(dp(8),0,dp(8),dp(12));',1)
-          p.write_text(s)
-
-          mf=Path('jump-tapper/app/src/main/AndroidManifest.xml');ms=mf.read_text();
-          ms=ms.replace('<uses-permission android:name="android.permission.VIBRATE" />','<uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',1)
-          mf.write_text(ms)
-
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text()
-          t=t.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.45",28,true);',1)
-          # Ask once via Android's official Draw over other apps screen. This lets the entire control+SET panel be one normal app overlay.
-          marker='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);'
-          repl='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);\n        if(Build.VERSION.SDK_INT>=23&&!Settings.canDrawOverlays(this)&&!p.getBoolean("overlay_permission_prompted",false)){p.edit().putBoolean("overlay_permission_prompted",true).apply();try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(Exception ignored){}}'
-          if marker not in t: raise SystemExit('main permission marker missing')
-          t=t.replace(marker,repl,1)
-          t=t.replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
-          sm='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");'
-          t=t.replace(sm,sm+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);',1)
-          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
-          rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",48).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          s=s.replace(oldcp,newcp,1).replace('settingsContent.setPadding(dp(8),dp(6),dp(8),dp(12));','settingsContent.setPadding(dp(8),0,dp(8),dp(12));',1);p.write_text(s)
+          mf=Path('jump-tapper/app/src/main/AndroidManifest.xml');ms=mf.read_text().replace('<uses-permission android:name="android.permission.VIBRATE" />','<uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',1);mf.write_text(ms)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.45",28,true);',1)
+          marker='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);';repl='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);\n        if(Build.VERSION.SDK_INT>=23&&!Settings.canDrawOverlays(this)&&!p.getBoolean("overlay_permission_prompted",false)){p.edit().putBoolean("overlay_permission_prompted",true).apply();try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(Exception ignored){}}'
+          if marker not in t: raise SystemExit('permission marker missing')
+          t=t.replace(marker,repl,1).replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
+          sm='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");';t=t.replace(sm,sm+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);',1)
+          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();';rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",48).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
           if rm not in t: raise SystemExit('reload marker missing')
           t=t.replace(rm,rr,1)
-          # When returning from Draw-over-apps permission, force the service to recreate controls with TYPE_APPLICATION_OVERLAY.
-          insert='''\n    @Override protected void onResume(){\n        super.onResume();\n        if(Build.VERSION.SDK_INT<23||Settings.canDrawOverlays(this)){\n            Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        }\n    }\n'''
-          idx=t.rfind('\n}')
-          t=t[:idx]+insert+t[idx:]
-          m.write_text(t)
-
-          g=Path('jump-tapper/app/build.gradle');x=g.read_text();y=x.replace("versionCode 35\n        versionName '1.32'","versionCode 48\n        versionName '1.45'")
+          insert='''\n    @Override public void onWindowFocusChanged(boolean hasFocus){\n        super.onWindowFocusChanged(hasFocus);\n        if(hasFocus&&(Build.VERSION.SDK_INT<23||Settings.canDrawOverlays(this))){Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);}\n    }\n''';idx=t.rfind('\n}');t=t[:idx]+insert+t[idx:];m.write_text(t)
+          g=Path('jump-tapper/app/build.gradle');x=g.read_text();y=x.replace("versionCode 35\n        versionName '1.32'","versionCode 48\n        versionName '1.45'");
           if y==x: raise SystemExit('version marker missing')
           g.write_text(y)
           PY
