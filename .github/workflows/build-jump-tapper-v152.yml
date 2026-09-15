@@ -1,4 +1,4 @@
-name: Build Jump Tapper v1.53 APK
+name: Build Jump Tapper v1.54 APK
 
 on:
   push:
@@ -31,32 +31,37 @@ jobs:
           Path('/tmp/v151.sh').write_text('\n'.join(block)+'\n')
           PY
           bash /tmp/v151.sh
-      - name: Add visible self-test button and test engine
+      - name: Add self-test as first visible SET control
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
-          # Insert directly before the known Debug toggle so it is guaranteed to be inside settingsContent.
-          marker='ovDebug=toggleButton("Lightweight debug logging",debug);'
-          if marker not in s: raise SystemExit('debug marker missing')
-          button='Button selfTest=panelButton("TEST ALL ON/OFF SETTINGS");selfTest.setOnClickListener(v->runOverlayToggleSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(52)));\n        '
-          s=s.replace(marker,button+marker,1)
+          marker='settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));'
+          if marker not in s: raise SystemExit('SET top marker missing')
+          button='''settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));\n        Button selfTest=panelButton("TEST ALL ON/OFF SETTINGS");selfTest.setTextSize(13);selfTest.setOnClickListener(v->runOverlayToggleSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));'''
+          s=s.replace(marker,button,1)
           anchor='    private String comboLabelText()'
           helper='''    private boolean toggleRuntimeValue(String key){if("target_visible".equals(key))return targetVisible;if("control_visible".equals(key))return controlVisible;if("auto_collapse_start".equals(key))return autoCollapseStart;if("hide_target_running".equals(key))return hideTargetRunning;if("haptic_enabled".equals(key))return hapticEnabled;if("debug_enabled".equals(key))return debug;if("millis_mode".equals(key))return ovUseTotal;if("overlay_hotkey_custom".equals(key))return hotkeyMode==3;return false;}\n    private boolean selfTestOne(SharedPreferences p,String label,String key,boolean original){String prefKey="overlay_hotkey_custom".equals(key)?"overlay_hotkey":key;boolean test=!original;if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,test?3:4).commit();else p.edit().putBoolean(prefKey,test).commit();load();boolean stored="overlay_hotkey_custom".equals(key)?p.getInt(prefKey,4)==(test?3:4):p.getBoolean(prefKey,original)==test;boolean runtime=toggleRuntimeValue(key)==test;if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,original?3:4).commit();else p.edit().putBoolean(prefKey,original).commit();load();boolean restored=toggleRuntimeValue(key)==original;boolean ok=stored&&runtime&&restored;log("SELF_TEST "+label+" "+(ok?"PASS":"FAIL")+" stored="+stored+" runtime="+runtime+" restored="+restored);return ok;}\n    private void runOverlayToggleSelfTest(){if(running){toast("Stop tapping before self-test");return;}SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean a=targetVisible,b=controlVisible,c=autoCollapseStart,d=hideTargetRunning,e=hapticEnabled,f=debug,g=ovUseTotal,hk=hotkeyMode==3;int pass=0,total=8;StringBuilder fail=new StringBuilder();if(selfTestOne(p,"Show target","target_visible",a))pass++;else fail.append(" target");if(selfTestOne(p,"Show controls","control_visible",b))pass++;else fail.append(" controls");if(selfTestOne(p,"Auto collapse","auto_collapse_start",c))pass++;else fail.append(" collapse");if(selfTestOne(p,"Hide target","hide_target_running",d))pass++;else fail.append(" hide-target");if(selfTestOne(p,"Haptic","haptic_enabled",e))pass++;else fail.append(" haptic");if(selfTestOne(p,"Debug","debug_enabled",f))pass++;else fail.append(" debug");if(selfTestOne(p,"Timing mode","millis_mode",g))pass++;else fail.append(" mode");if(selfTestOne(p,"Keybind","overlay_hotkey_custom",hk))pass++;else fail.append(" keybind");load();updateKeyFilterState();applyTargetOnly();syncOverlayFields();refreshUi();String result="SELF-TEST: PASS "+pass+" / FAIL "+(total-pass)+(fail.length()>0?" |"+fail:"");log(result);flushLogsNow();toast(result);}\n\n'''
           if anchor not in s: raise SystemExit('helper anchor missing')
           s=s.replace(anchor,helper+anchor,1)
           p.write_text(s)
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');m.write_text(m.read_text().replace('Jump Tapper v1.51','Jump Tapper v1.53').replace('putInt("last_ui_build",54)','putInt("last_ui_build",56)'))
-          g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 54','versionCode 56').replace("versionName '1.51'","versionName '1.53'"))
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');m.write_text(m.read_text().replace('Jump Tapper v1.51','Jump Tapper v1.54').replace('putInt("last_ui_build",54)','putInt("last_ui_build",57)'))
+          g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 54','versionCode 57').replace("versionName '1.51'","versionName '1.54'"))
           PY
-      - name: Verify self-test is really in generated source
+      - name: Verify button placement in generated SET panel
         run: |
-          grep -F 'TEST ALL ON/OFF SETTINGS' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
-          grep -F 'runOverlayToggleSelfTest' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java').read_text()
+          a=s.index('ALL OVERLAY SETTINGS'); b=s.index('TEST ALL ON/OFF SETTINGS'); c=s.index('addSection("Tap timing")')
+          assert a < b < c, (a,b,c)
+          assert s.count('TEST ALL ON/OFF SETTINGS') == 1
+          print('Verified: self-test button is at TOP of visible SET panel')
+          PY
       - name: Build unsigned release APK
         working-directory: jump-tapper
         run: gradle assembleRelease
-      - name: Verify self-test string is packaged in APK
+      - name: Verify APK contains v1.54 self-test
         run: |
           APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$APK"
@@ -64,12 +69,12 @@ jobs:
       - name: Package
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.53_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.54_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           cp "$APKSIGNER" sign-bundle/apksigner
           cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.53_SIGNING_BUNDLE
+          name: JumpTapper_v1.54_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
