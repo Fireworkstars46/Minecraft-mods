@@ -44,19 +44,13 @@ jobs:
               if old not in s: raise SystemExit('Expected source text not found: '+old[:100])
               s=s.replace(old,new,1)
           p.write_text(s)
-
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
-          a=m.read_text()
-          a=a.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.35",28,true);',1)
+          a=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.35",28,true);',1)
           marker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
-          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",38).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent r=new Intent(ACTION_RELOAD);r.setPackage(getPackageName());sendBroadcast(r);requestMaster();},700L);\n        requestMaster();'
+          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",38).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
           if marker not in a: raise SystemExit('MainActivity reload marker not found')
-          a=a.replace(marker,replacement,1)
-          m.write_text(a)
-
-          g=Path('jump-tapper/app/build.gradle')
-          original=g.read_text()
-          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 38\n        versionName '1.35'")
+          m.write_text(a.replace(marker,replacement,1))
+          g=Path('jump-tapper/app/build.gradle'); original=g.read_text(); t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 38\n        versionName '1.35'")
           if t==original: raise SystemExit('Version text not found')
           g.write_text(t)
           PY
