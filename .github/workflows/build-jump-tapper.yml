@@ -20,7 +20,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.35 overlay keyboard and automatic reload fixes
+      - name: Apply v1.36 overlay fixes
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -36,21 +36,29 @@ jobs:
             'settingsButton=smallButton("SET",54);':'settingsButton=smallButton("SET",44);',
             'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.90f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.72f);':'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.96f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.60f);',
             'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);controlParams.gravity':'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);controlParams.gravity',
-            'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});return e;}':'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});e.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null)im.hideSoftInputFromWindow(e.getWindowToken(),0);e.clearFocus();return true;}return false;});return e;}',
+            'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});return e;}':'private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});e.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){hideOverlayKeyboard();return true;}return false;});return e;}',
             'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}':'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;controlParams.flags&=~WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;int screenH=getResources().getDisplayMetrics().heightPixels;int safeBottom=dp(96);int top=Math.max(0,controlParams.y);int rowH=scaled(46);int available=Math.max(dp(220),screenH-top-rowH-safeBottom);if(settingsScroll!=null){android.view.ViewGroup.LayoutParams lp=settingsScroll.getLayoutParams();lp.height=Math.min((int)(screenH*0.60f),available);settingsScroll.setLayoutParams(lp);}try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}',
-            'else if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}':'else if(controlParams!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null&&control!=null)im.hideSoftInputFromWindow(control.getWindowToken(),0);if(control!=null)control.clearFocus();controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}'
+            'else if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}':'else if(controlParams!=null){hideOverlayKeyboard();controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}',
+            'settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));':'settingsContent.addView(panelText("Everything here saves without leaving the game. Timing accepts 0 = instant.",11,false));\n        Button hideKeyboard=panelButton("HIDE KEYBOARD");hideKeyboard.setOnClickListener(v->hideOverlayKeyboard());settingsContent.addView(hideKeyboard,new LinearLayout.LayoutParams(-1,dp(44)));',
+            'ovTotal=overlayNumber(intervalMs,8);settingsContent.addView(settingRow("Total ms 0–86400000",ovTotal));':'ovTotal=overlayNumber(intervalMs,8);ovTotal.setOnFocusChangeListener((v,has)->{if(has){ovUseTotal=true;updateModeUi();}});settingsContent.addView(settingRow("Total ms 0–86400000",ovTotal));',
+            'private void updateModeUi(){if(ovMode!=null)ovMode.setText(ovUseTotal?"MODE: TOTAL MS":"MODE: D/H/M/S/MS");if(ovTotal!=null)ovTotal.setEnabled(ovUseTotal);boolean split=!ovUseTotal;if(ovDays!=null)ovDays.setEnabled(split);if(ovHours!=null)ovHours.setEnabled(split);if(ovMinutes!=null)ovMinutes.setEnabled(split);if(ovSeconds!=null)ovSeconds.setEnabled(split);if(ovMillis!=null)ovMillis.setEnabled(split);}':'private void updateModeUi(){if(ovMode!=null)ovMode.setText(ovUseTotal?"MODE: TOTAL MS":"MODE: D/H/M/S/MS");if(ovTotal!=null){ovTotal.setEnabled(true);ovTotal.setAlpha(ovUseTotal?1f:0.65f);}boolean split=!ovUseTotal;if(ovDays!=null){ovDays.setEnabled(true);ovDays.setAlpha(split?1f:0.65f);}if(ovHours!=null){ovHours.setEnabled(true);ovHours.setAlpha(split?1f:0.65f);}if(ovMinutes!=null){ovMinutes.setEnabled(true);ovMinutes.setAlpha(split?1f:0.65f);}if(ovSeconds!=null){ovSeconds.setEnabled(true);ovSeconds.setAlpha(split?1f:0.65f);}if(ovMillis!=null){ovMillis.setEnabled(true);ovMillis.setAlpha(split?1f:0.65f);}}\n    private void hideOverlayKeyboard(){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);View f=control!=null?control.findFocus():null;if(im!=null){android.os.IBinder token=f!=null?f.getWindowToken():(control!=null?control.getWindowToken():null);if(token!=null)im.hideSoftInputFromWindow(token,0);}if(f!=null)f.clearFocus();}'
           }
           for old,new in replacements.items():
-              if old not in s: raise SystemExit('Expected source text not found: '+old[:100])
+              if old not in s: raise SystemExit('Expected source text not found: '+old[:120])
               s=s.replace(old,new,1)
+          # Any split timing field can be tapped to switch back to split mode.
+          marker='timingCell(timeRow,"d",ovDays);timingCell(timeRow,"h",ovHours);timingCell(timeRow,"m",ovMinutes);timingCell(timeRow,"s",ovSeconds);timingCell(timeRow,"ms",ovMillis);settingsContent.addView(timeRow);'
+          repl=marker+'\n        android.view.View.OnFocusChangeListener splitFocus=(v,has)->{if(has){ovUseTotal=false;updateModeUi();}};ovDays.setOnFocusChangeListener(splitFocus);ovHours.setOnFocusChangeListener(splitFocus);ovMinutes.setOnFocusChangeListener(splitFocus);ovSeconds.setOnFocusChangeListener(splitFocus);ovMillis.setOnFocusChangeListener(splitFocus);'
+          if marker not in s: raise SystemExit('timing row marker not found')
+          s=s.replace(marker,repl,1)
           p.write_text(s)
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
-          a=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.35",28,true);',1)
+          a=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.36",28,true);',1)
           marker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
-          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",38).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          replacement='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",39).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
           if marker not in a: raise SystemExit('MainActivity reload marker not found')
           m.write_text(a.replace(marker,replacement,1))
-          g=Path('jump-tapper/app/build.gradle'); original=g.read_text(); t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 38\n        versionName '1.35'")
+          g=Path('jump-tapper/app/build.gradle'); original=g.read_text(); t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 39\n        versionName '1.36'")
           if t==original: raise SystemExit('Version text not found')
           g.write_text(t)
           PY
@@ -60,7 +68,7 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.35_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.36_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -68,6 +76,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.35_SIGNING_BUNDLE
+          name: JumpTapper_v1.36_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
