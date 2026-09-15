@@ -1,0 +1,128 @@
+name: Build Jump Tapper v1.52 APK
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Reuse v1.51 source transformation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('.github/workflows/build-jump-tapper.yml').read_text().splitlines()
+          start=None
+          for i,line in enumerate(lines):
+              if 'name: Apply v1.51 full overlay settings sync' in line:
+                  start=i
+                  break
+          if start is None: raise SystemExit('v1.51 transform step not found')
+          run=None
+          for i in range(start+1,len(lines)):
+              if lines[i].strip()=='run: |': run=i+1; break
+              if lines[i].startswith('      - '): break
+          if run is None: raise SystemExit('v1.51 run block not found')
+          block=[]
+          for line in lines[run:]:
+              if line.startswith('      - '): break
+              block.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/v151.sh').write_text('\n'.join(block)+'\n')
+          PY
+          bash /tmp/v151.sh
+
+      - name: Add v1.52 automatic ON OFF self-test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
+          s=p.read_text()
+          old='''        ovDebug=toggleButton("Lightweight debug logging",debug);ovDebug.setOnClickListener(v->{debug=!debug;setToggleText(ovDebug,"Lightweight debug logging",debug);syncAndApplyOverlay();});settingsContent.addView(ovDebug);'''
+          new=old+'''\n        Button selfTest=panelButton("TEST ALL ON/OFF SETTINGS");selfTest.setOnClickListener(v->runOverlayToggleSelfTest());settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(48)));'''
+          if old not in s: raise SystemExit('debug toggle marker missing')
+          s=s.replace(old,new,1)
+          anchor='    private String comboLabelText()'
+          helper=r'''    private boolean toggleRuntimeValue(String key){
+        if("target_visible".equals(key))return targetVisible;
+        if("control_visible".equals(key))return controlVisible;
+        if("auto_collapse_start".equals(key))return autoCollapseStart;
+        if("hide_target_running".equals(key))return hideTargetRunning;
+        if("haptic_enabled".equals(key))return hapticEnabled;
+        if("debug_enabled".equals(key))return debug;
+        if("millis_mode".equals(key))return ovUseTotal;
+        if("overlay_hotkey_custom".equals(key))return hotkeyMode==3;
+        return false;
+    }
+
+    private boolean selfTestOne(SharedPreferences p,String label,String key,boolean original){
+        String prefKey="overlay_hotkey_custom".equals(key)?"overlay_hotkey":key;
+        boolean test=!original;
+        if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,test?3:4).commit();else p.edit().putBoolean(prefKey,test).commit();
+        load();
+        boolean stored="overlay_hotkey_custom".equals(key)?p.getInt(prefKey,4)==(test?3:4):p.getBoolean(prefKey,original)==test;
+        boolean runtime=toggleRuntimeValue(key)==test;
+        if("overlay_hotkey_custom".equals(key))p.edit().putInt(prefKey,original?3:4).commit();else p.edit().putBoolean(prefKey,original).commit();
+        load();
+        boolean restored=toggleRuntimeValue(key)==original;
+        boolean ok=stored&&runtime&&restored;
+        log("SELF_TEST "+label+" "+(ok?"PASS":"FAIL")+" stored="+stored+" runtime="+runtime+" restored="+restored);
+        return ok;
+    }
+
+    private void runOverlayToggleSelfTest(){
+        if(running){toast("Stop tapping before self-test");return;}
+        SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);
+        boolean a=targetVisible,b=controlVisible,c=autoCollapseStart,d=hideTargetRunning,e=hapticEnabled,f=debug,g=ovUseTotal,hk=hotkeyMode==3;
+        int pass=0,total=8;StringBuilder fail=new StringBuilder();
+        if(selfTestOne(p,"Show circular target","target_visible",a))pass++;else fail.append(" target");
+        if(selfTestOne(p,"Show controls","control_visible",b))pass++;else fail.append(" controls");
+        if(selfTestOne(p,"Auto collapse","auto_collapse_start",c))pass++;else fail.append(" collapse");
+        if(selfTestOne(p,"Hide target running","hide_target_running",d))pass++;else fail.append(" hide-target");
+        if(selfTestOne(p,"Haptic","haptic_enabled",e))pass++;else fail.append(" haptic");
+        if(selfTestOne(p,"Debug","debug_enabled",f))pass++;else fail.append(" debug");
+        if(selfTestOne(p,"Timing mode","millis_mode",g))pass++;else fail.append(" mode");
+        if(selfTestOne(p,"Custom keybind","overlay_hotkey_custom",hk))pass++;else fail.append(" keybind");
+        load();updateKeyFilterState();applyTargetOnly();syncOverlayFields();refreshUi();flushLogsNow();
+        String result="SELF-TEST: PASS "+pass+" / FAIL "+(total-pass)+(fail.length()>0?" |"+fail:"");
+        log(result);flushLogsNow();toast(result);
+    }
+
+'''
+          if anchor not in s: raise SystemExit('combo label anchor missing')
+          s=s.replace(anchor,helper+anchor,1)
+          p.write_text(s)
+
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
+          t=m.read_text().replace('Jump Tapper v1.51','Jump Tapper v1.52').replace('putInt("last_ui_build",54)','putInt("last_ui_build",55)')
+          m.write_text(t)
+          g=Path('jump-tapper/app/build.gradle')
+          x=g.read_text().replace('versionCode 54','versionCode 55').replace("versionName '1.51'","versionName '1.52'")
+          g.write_text(x)
+          PY
+
+      - name: Build unsigned release APK
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Package unsigned APK and apksigner tool
+        run: |
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.52_unsigned.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          cp "$APKSIGNER" sign-bundle/apksigner
+          cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpTapper_v1.52_SIGNING_BUNDLE
+          path: sign-bundle
+          if-no-files-found: error
