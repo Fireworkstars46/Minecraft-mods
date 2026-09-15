@@ -17,7 +17,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.44 settings layout
+      - name: Apply v1.45 normal overlay control panel
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -25,16 +25,44 @@ jobs:
           s=p.read_text()
           for old,new in [('topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));','topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));'),('masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",58);','masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",46);'),('startStop=smallButton("START",80);','startStop=smallButton("START",62);'),('moveButton=smallButton(moveMode?"LOCK":"MOVE",66);','moveButton=smallButton(moveMode?"LOCK":"MOVE",52);'),('tapButton=smallButton("TAP",54);','tapButton=smallButton("TAP",44);'),('targetButton=smallButton("J",42);','targetButton=smallButton("J",34);')]: s=s.replace(old,new,1)
           old='settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
-          new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->{Intent si=new Intent(this,OverlaySettingsActivity.class);si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_NO_ANIMATION);startActivity(si);});'
+          new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
           if old not in s: raise SystemExit('SET marker missing')
-          p.write_text(s.replace(old,new,1))
+          s=s.replace(old,new,1)
+          oldcp='controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);'
+          newcp='int controlWindowType=android.provider.Settings.canDrawOverlays(this)?WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY:WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,controlWindowType,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);'
+          if oldcp not in s: raise SystemExit('control params marker missing')
+          s=s.replace(oldcp,newcp,1)
+          # Keep settings truly inside the same control view/window. Application overlay focus is used only while SET is open.
+          s=s.replace('settingsContent.setPadding(dp(8),dp(6),dp(8),dp(12));','settingsContent.setPadding(dp(8),0,dp(8),dp(12));',1)
+          p.write_text(s)
 
-          Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/OverlaySettingsActivity.java').write_text('''package com.example.robloxjumptapper;\nimport android.content.Intent;\nimport android.graphics.Color;\nimport android.graphics.drawable.ColorDrawable;\nimport android.os.Bundle;\nimport android.view.Gravity;\nimport android.view.View;\nimport android.view.ViewGroup;\nimport android.view.Window;\nimport android.view.WindowManager;\nimport android.widget.Button;\nimport android.widget.LinearLayout;\nimport android.widget.ScrollView;\npublic class OverlaySettingsActivity extends MainActivity {\n @Override protected void onCreate(Bundle b){super.onCreate(b);overridePendingTransition(0,0);Window w=getWindow();w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setBackgroundDrawable(new ColorDrawable(0xFF202124));w.setNavigationBarColor(Color.BLACK);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);if(android.os.Build.VERSION.SDK_INT>=30)w.setDecorFitsSystemWindows(true);addCloseButton();positionAttached();}\n @Override public void onWindowFocusChanged(boolean has){super.onWindowFocusChanged(has);if(has)positionAttached();}\n private void positionAttached(){float d=getResources().getDisplayMetrics().density;int sw=getResources().getDisplayMetrics().widthPixels,sh=getResources().getDisplayMetrics().heightPixels;android.content.SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);int x=p.getInt("control_x",Math.round(12*d)),y=p.getInt("control_y",Math.round(120*d)),scale=Math.max(1,p.getInt("control_scale",100));int rowH=Math.round(46*d*scale/100f),width=Math.min(Math.round(390*d),(int)(sw*.90f)),left=Math.max(0,Math.min(x,sw-width)),top=Math.max(0,y+rowH),height=Math.max(Math.round(220*d),Math.min((int)(sh*.72f),sh-top-Math.round(52*d)));WindowManager.LayoutParams lp=getWindow().getAttributes();lp.gravity=Gravity.TOP|Gravity.START;lp.x=left;lp.y=top;lp.width=width;lp.height=height;getWindow().setAttributes(lp);}\n private void addCloseButton(){View content=findViewById(android.R.id.content);if(!(content instanceof ViewGroup))return;View root=((ViewGroup)content).getChildAt(0);if(root instanceof ScrollView){ScrollView sv=(ScrollView)root;sv.setFillViewport(true);View child=sv.getChildAt(0);if(child instanceof LinearLayout){Button close=new Button(this);close.setText("CLOSE SETTINGS");close.setOnClickListener(v->{saveForClose();closeNow();});LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(-1,dp(52));x.topMargin=dp(6);x.bottomMargin=dp(12);((LinearLayout)child).addView(close,x);}}}\n private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}\n private void saveForClose(){View c=findViewById(android.R.id.content);if(!(c instanceof ViewGroup))return;View r=((ViewGroup)c).getChildAt(0);if(!(r instanceof ScrollView))return;View ch=((ScrollView)r).getChildAt(0);if(!(ch instanceof LinearLayout))return;LinearLayout b=(LinearLayout)ch;for(int i=0;i<b.getChildCount();i++){View v=b.getChildAt(i);if(v instanceof Button&&"Save Settings".contentEquals(((Button)v).getText())){v.performClick();break;}}}\n private void closeNow(){finish();overridePendingTransition(0,0);}\n @Override protected void onNewIntent(Intent i){super.onNewIntent(i);closeNow();}\n @Override public void finish(){super.finish();overridePendingTransition(0,0);}\n}\n''')
-          mf=Path('jump-tapper/app/src/main/AndroidManifest.xml');ms=mf.read_text();marker='''        <activity\n            android:name=".MainActivity"\n            android:exported="true">''';add='''        <activity\n            android:name=".OverlaySettingsActivity"\n            android:exported="false"\n            android:excludeFromRecents="true"\n            android:launchMode="singleTop"\n            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"\n            android:windowSoftInputMode="adjustResize" />\n\n''';mf.write_text(ms.replace(marker,add+marker,1))
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.44",28,true);',1).replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
-          sm='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");';t=t.replace(sm,sm+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);',1)
-          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();';rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",47).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();';m.write_text(t.replace(rm,rr,1))
-          g=Path('jump-tapper/app/build.gradle');x=g.read_text();g.write_text(x.replace("versionCode 35\n        versionName '1.32'","versionCode 47\n        versionName '1.44'"))
+          mf=Path('jump-tapper/app/src/main/AndroidManifest.xml');ms=mf.read_text();
+          ms=ms.replace('<uses-permission android:name="android.permission.VIBRATE" />','<uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',1)
+          mf.write_text(ms)
+
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text()
+          t=t.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.45",28,true);',1)
+          # Ask once via Android's official Draw over other apps screen. This lets the entire control+SET panel be one normal app overlay.
+          marker='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);'
+          repl='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);\n        if(Build.VERSION.SDK_INT>=23&&!Settings.canDrawOverlays(this)&&!p.getBoolean("overlay_permission_prompted",false)){p.edit().putBoolean("overlay_permission_prompted",true).apply();try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(Exception ignored){}}'
+          if marker not in t: raise SystemExit('main permission marker missing')
+          t=t.replace(marker,repl,1)
+          t=t.replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
+          sm='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");'
+          t=t.replace(sm,sm+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);',1)
+          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
+          rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",48).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          if rm not in t: raise SystemExit('reload marker missing')
+          t=t.replace(rm,rr,1)
+          # When returning from Draw-over-apps permission, force the service to recreate controls with TYPE_APPLICATION_OVERLAY.
+          insert='''\n    @Override protected void onResume(){\n        super.onResume();\n        if(Build.VERSION.SDK_INT<23||Settings.canDrawOverlays(this)){\n            Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        }\n    }\n'''
+          idx=t.rfind('\n}')
+          t=t[:idx]+insert+t[idx:]
+          m.write_text(t)
+
+          g=Path('jump-tapper/app/build.gradle');x=g.read_text();y=x.replace("versionCode 35\n        versionName '1.32'","versionCode 48\n        versionName '1.45'")
+          if y==x: raise SystemExit('version marker missing')
+          g.write_text(y)
           PY
       - name: Build unsigned release APK
         working-directory: jump-tapper
@@ -42,12 +70,12 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.44_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.45_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           cp "$APKSIGNER" sign-bundle/apksigner
           cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.44_SIGNING_BUNDLE
+          name: JumpTapper_v1.45_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
