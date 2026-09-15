@@ -20,13 +20,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.39 settings close fix
+      - name: Apply v1.40 nav-safe settings fix
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          # Keep v1.38's normal Android settings window (the Samsung keyboard/nav fix),
-          # but make SET a true open/close toggle and add a dedicated CLOSE button.
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
           s=p.read_text()
           s=s.replace('topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));','topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));',1)
@@ -38,38 +36,34 @@ jobs:
           old='settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));'
           new='settingsButton=smallButton("SET",44);settingsButton.setOnClickListener(v->{Intent si=new Intent(this,OverlaySettingsActivity.class);si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);startActivity(si);});'
           if old not in s: raise SystemExit('SET listener marker not found')
-          s=s.replace(old,new,1)
-          p.write_text(s)
+          p.write_text(s.replace(old,new,1))
 
-          # Dedicated normal Activity. Pressing the floating SET button again while this
-          # dialog is foreground brings the same singleTop instance forward; onNewIntent
-          # interprets that as the requested toggle-close. CLOSE saves then finishes.
           a=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/OverlaySettingsActivity.java')
-          a.write_text('''package com.example.robloxjumptapper;\n\nimport android.content.Intent;\nimport android.os.Bundle;\nimport android.view.View;\nimport android.view.ViewGroup;\nimport android.view.WindowManager;\nimport android.widget.Button;\nimport android.widget.LinearLayout;\nimport android.widget.ScrollView;\n\npublic class OverlaySettingsActivity extends MainActivity {\n    @Override protected void onCreate(Bundle b){\n        super.onCreate(b);\n        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);\n        setTitle("Jump Tapper Settings");\n        addCloseButton();\n    }\n    private void addCloseButton(){\n        View content=findViewById(android.R.id.content);\n        if(!(content instanceof ViewGroup))return;\n        View root=((ViewGroup)content).getChildAt(0);\n        if(root instanceof ScrollView){\n            View child=((ScrollView)root).getChildAt(0);\n            if(child instanceof LinearLayout){\n                Button close=new Button(this);\n                close.setText("CLOSE SETTINGS");\n                close.setOnClickListener(v->{saveForClose();finish();});\n                ((LinearLayout)child).addView(close,new LinearLayout.LayoutParams(-1,dpForClose(54)));\n            }\n        }\n    }\n    private int dpForClose(int v){return Math.round(v*getResources().getDisplayMetrics().density);}\n    private void saveForClose(){\n        // Reuse MainActivity's existing Save Settings button so no setting logic is duplicated.\n        View content=findViewById(android.R.id.content);\n        if(!(content instanceof ViewGroup))return;\n        View root=((ViewGroup)content).getChildAt(0);\n        if(!(root instanceof ScrollView))return;\n        View child=((ScrollView)root).getChildAt(0);\n        if(!(child instanceof LinearLayout))return;\n        LinearLayout box=(LinearLayout)child;\n        for(int i=0;i<box.getChildCount();i++){\n            View v=box.getChildAt(i);\n            if(v instanceof Button && "Save Settings".contentEquals(((Button)v).getText())){v.performClick();break;}\n        }\n    }\n    @Override protected void onNewIntent(Intent intent){\n        super.onNewIntent(intent);\n        // SET again = close, matching the old overlay behavior.\n        finish();\n    }\n}\n''')
+          a.write_text('''package com.example.robloxjumptapper;\n\nimport android.content.Intent;\nimport android.graphics.Color;\nimport android.os.Bundle;\nimport android.view.View;\nimport android.view.ViewGroup;\nimport android.view.Window;\nimport android.view.WindowInsets;\nimport android.view.WindowManager;\nimport android.widget.Button;\nimport android.widget.LinearLayout;\nimport android.widget.ScrollView;\n\npublic class OverlaySettingsActivity extends MainActivity {\n    @Override protected void onCreate(Bundle b){\n        super.onCreate(b);\n        Window w=getWindow();\n        w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);\n        w.setNavigationBarColor(Color.BLACK);\n        // Do not let the dialog draw through Samsung's system navigation area.\n        if(android.os.Build.VERSION.SDK_INT>=30)w.setDecorFitsSystemWindows(true);\n        setTitle("Jump Tapper Settings");\n        applySafeInsets();\n        addCloseButton();\n    }\n    private void applySafeInsets(){\n        View content=findViewById(android.R.id.content);\n        content.setOnApplyWindowInsetsListener((v,insets)->{\n            int bottom=0;\n            if(android.os.Build.VERSION.SDK_INT>=30)bottom=insets.getInsets(WindowInsets.Type.navigationBars()|WindowInsets.Type.ime()).bottom;\n            else bottom=insets.getSystemWindowInsetBottom();\n            // Keep a small extra gap so the final row and CLOSE button never touch the nav buttons.\n            v.setPadding(v.getPaddingLeft(),v.getPaddingTop(),v.getPaddingRight(),bottom+dpForClose(12));\n            return insets;\n        });\n        content.requestApplyInsets();\n    }\n    private void addCloseButton(){\n        View content=findViewById(android.R.id.content);\n        if(!(content instanceof ViewGroup))return;\n        View root=((ViewGroup)content).getChildAt(0);\n        if(root instanceof ScrollView){\n            ((ScrollView)root).setClipToPadding(false);\n            View child=((ScrollView)root).getChildAt(0);\n            if(child instanceof LinearLayout){\n                Button close=new Button(this);\n                close.setText("CLOSE SETTINGS");\n                close.setOnClickListener(v->{saveForClose();finish();});\n                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dpForClose(54));\n                lp.bottomMargin=dpForClose(20);\n                ((LinearLayout)child).addView(close,lp);\n            }\n        }\n    }\n    private int dpForClose(int v){return Math.round(v*getResources().getDisplayMetrics().density);}\n    private void saveForClose(){\n        View content=findViewById(android.R.id.content);\n        if(!(content instanceof ViewGroup))return;\n        View root=((ViewGroup)content).getChildAt(0);\n        if(!(root instanceof ScrollView))return;\n        View child=((ScrollView)root).getChildAt(0);\n        if(!(child instanceof LinearLayout))return;\n        LinearLayout box=(LinearLayout)child;\n        for(int i=0;i<box.getChildCount();i++){\n            View v=box.getChildAt(i);\n            if(v instanceof Button && "Save Settings".contentEquals(((Button)v).getText())){v.performClick();break;}\n        }\n    }\n    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);finish();}\n}\n''')
 
           manifest=Path('jump-tapper/app/src/main/AndroidManifest.xml')
           ms=manifest.read_text()
           marker='''        <activity\n            android:name=".MainActivity"\n            android:exported="true">'''
           addition='''        <activity\n            android:name=".OverlaySettingsActivity"\n            android:exported="false"\n            android:excludeFromRecents="true"\n            android:launchMode="singleTop"\n            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"\n            android:windowSoftInputMode="adjustResize" />\n\n'''
-          if marker not in ms: raise SystemExit('manifest activity marker not found')
+          if marker not in ms: raise SystemExit('manifest marker not found')
           manifest.write_text(ms.replace(marker,addition+marker,1))
 
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
           text=m.read_text()
-          text=text.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.39",28,true);',1)
+          text=text.replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.40",28,true);',1)
           text=text.replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
           splitmarker='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");'
           splitrepl=splitmarker+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);'
-          if splitmarker not in text: raise SystemExit('split timing marker not found')
+          if splitmarker not in text: raise SystemExit('split marker not found')
           text=text.replace(splitmarker,splitrepl,1)
           reloadmarker='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();'
-          reloadrepl='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",42).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          reloadrepl='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",43).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
           if reloadmarker not in text: raise SystemExit('reload marker not found')
           m.write_text(text.replace(reloadmarker,reloadrepl,1))
 
           g=Path('jump-tapper/app/build.gradle')
           original=g.read_text()
-          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 42\n        versionName '1.39'")
+          t=original.replace("versionCode 35\n        versionName '1.32'","versionCode 43\n        versionName '1.40'")
           if t==original: raise SystemExit('version marker not found')
           g.write_text(t)
           PY
@@ -79,7 +73,7 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.39_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.40_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -87,6 +81,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.39_SIGNING_BUNDLE
+          name: JumpTapper_v1.40_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
