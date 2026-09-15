@@ -17,7 +17,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v1.46 fixed-row keyboard-safe overlay
+      - name: Apply v1.47 non-focusable overlay keypad
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -29,30 +29,38 @@ jobs:
           oldcp='controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);'
           newcp='int controlWindowType=android.provider.Settings.canDrawOverlays(this)?WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY:WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;controlParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,controlWindowType,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);'
           if oldcp not in s: raise SystemExit('control params marker missing')
-          s=s.replace(oldcp,newcp,1)
-          # Keep row fixed; settings is the only bounded/scrollable child. Height is recalculated from visible display/IME frame.
-          oldh='int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.90f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.72f);\n        control.addView(settingsScroll,new LinearLayout.LayoutParams(Math.min(dp(390),maxW),Math.max(dp(220),maxH)));'
-          newh='int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.90f);int maxH=Math.max(dp(180),(int)(getResources().getDisplayMetrics().heightPixels*0.62f));\n        control.addView(settingsScroll,new LinearLayout.LayoutParams(Math.min(dp(390),maxW),maxH));\n        control.getViewTreeObserver().addOnGlobalLayoutListener(()->resizeSettingsForVisibleArea());'
-          if oldh not in s: raise SystemExit('settings size marker missing')
-          s=s.replace(oldh,newh,1).replace('settingsContent.setPadding(dp(8),dp(6),dp(8),dp(12));','settingsContent.setPadding(dp(8),0,dp(8),dp(12));',1)
-          # Add helper before setSettingsOpen. It uses visible display frame, which shrinks above Samsung keyboard/nav.
-          marker='    private void setSettingsOpen(boolean open){'
-          helper='''    private void resizeSettingsForVisibleArea(){\n        if(control==null||settingsScroll==null||settingsScroll.getVisibility()!=View.VISIBLE)return;\n        try{\n            android.graphics.Rect r=new android.graphics.Rect();control.getWindowVisibleDisplayFrame(r);\n            int[] loc=new int[2];topRow.getLocationOnScreen(loc);\n            int top=loc[1]+topRow.getHeight();\n            int available=Math.max(dp(120),r.bottom-top-dp(4));\n            int cap=Math.max(dp(180),(int)(getResources().getDisplayMetrics().heightPixels*0.62f));\n            int h=Math.min(cap,available);\n            android.view.ViewGroup.LayoutParams lp=settingsScroll.getLayoutParams();\n            if(lp.height!=h){lp.height=h;settingsScroll.setLayoutParams(lp);}\n        }catch(Exception ignored){}\n    }\n\n'''
-          if marker not in s: raise SystemExit('setSettingsOpen marker missing')
-          s=s.replace(marker,helper+marker,1)
-          s=s.replace('if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();','if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();h.post(this::resizeSettingsForVisibleArea);',1)
+          s=s.replace(oldcp,newcp,1).replace('settingsContent.setPadding(dp(8),dp(6),dp(8),dp(12));','settingsContent.setPadding(dp(8),0,dp(8),dp(12));',1)
+          # Never allow SET to remove FLAG_NOT_FOCUSABLE. Samsung system navigation stays independent.
+          oldset='''    private void setSettingsOpen(boolean open){\n        settingsOpen=open;if(settingsScroll!=null)settingsScroll.setVisibility(open?View.VISIBLE:View.GONE);\n        if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}\n        else if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}\n    }'''
+          newset='''    private void setSettingsOpen(boolean open){\n        settingsOpen=open;if(settingsScroll!=null)settingsScroll.setVisibility(open?View.VISIBLE:View.GONE);\n        if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();}\n        if(controlParams!=null){controlParams.flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}\n    }'''
+          if oldset not in s: raise SystemExit('settings focus marker missing')
+          s=s.replace(oldset,newset,1)
+          # Numeric fields use an in-overlay touch keypad instead of Android IME.
+          s=s.replace('private TextView ovComboLabel;','private TextView ovComboLabel;\n    private LinearLayout ovNumberPad;\n    private EditText ovActiveNumber;',1)
+          oldnum='private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setSelectAllOnFocus(true);e.setInputType(InputType.TYPE_CLASS_NUMBER);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});return e;}'
+          newnum='private EditText overlayNumber(long value,int len){EditText e=new EditText(this);e.setText(String.valueOf(value));e.setTextColor(Color.WHITE);e.setHintTextColor(0xFFAAAAAA);e.setTextSize(14);e.setGravity(Gravity.CENTER);e.setSingleLine(true);e.setFocusable(false);e.setFocusableInTouchMode(false);e.setCursorVisible(false);e.setInputType(InputType.TYPE_NULL);e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(len)});e.setOnClickListener(v->showOverlayNumberPad(e));return e;}'
+          if oldnum not in s: raise SystemExit('overlayNumber marker missing')
+          s=s.replace(oldnum,newnum,1)
+          # Insert keypad at top of settings content.
+          title='TextView title=panelText("ALL OVERLAY SETTINGS",15,true);settingsContent.addView(title);'
+          repl='ovNumberPad=buildOverlayNumberPad();settingsContent.addView(ovNumberPad);ovNumberPad.setVisibility(View.GONE);\n        '+title
+          if title not in s: raise SystemExit('title marker missing')
+          s=s.replace(title,repl,1)
+          helper='''\n    private LinearLayout buildOverlayNumberPad(){\n        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(2),dp(2),dp(2),dp(4));\n        TextView lab=panelText("EDIT NUMBER — phone keyboard not used",11,true);lab.setGravity(Gravity.CENTER);box.addView(lab,new LinearLayout.LayoutParams(-1,dp(30)));\n        int[][] keys={{1,2,3},{4,5,6},{7,8,9}};\n        for(int[] rowKeys:keys){LinearLayout row=new LinearLayout(this);for(int k:rowKeys){Button b=panelButton(String.valueOf(k));final int d=k;b.setOnClickListener(v->appendOverlayDigit(d));row.addView(b,new LinearLayout.LayoutParams(0,dp(42),1));}box.addView(row);}\n        LinearLayout last=new LinearLayout(this);Button clear=panelButton("CLEAR");clear.setOnClickListener(v->{if(ovActiveNumber!=null)ovActiveNumber.setText("");});last.addView(clear,new LinearLayout.LayoutParams(0,dp(42),1));Button zero=panelButton("0");zero.setOnClickListener(v->appendOverlayDigit(0));last.addView(zero,new LinearLayout.LayoutParams(0,dp(42),1));Button back=panelButton("⌫");back.setOnClickListener(v->{if(ovActiveNumber!=null){String x=ovActiveNumber.getText().toString();if(!x.isEmpty())ovActiveNumber.setText(x.substring(0,x.length()-1));}});last.addView(back,new LinearLayout.LayoutParams(0,dp(42),1));box.addView(last);\n        Button done=panelButton("DONE");done.setOnClickListener(v->{ovActiveNumber=null;box.setVisibility(View.GONE);});box.addView(done,new LinearLayout.LayoutParams(-1,dp(42)));return box;\n    }\n    private void showOverlayNumberPad(EditText e){ovActiveNumber=e;if(ovNumberPad!=null){ovNumberPad.setVisibility(View.VISIBLE);if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.smoothScrollTo(0,0));}}\n    private void appendOverlayDigit(int d){if(ovActiveNumber==null)return;String x=ovActiveNumber.getText().toString();if(x.equals("0"))x="";ovActiveNumber.setText(x+d);}\n'''
+          anchor='    private LinearLayout settingRow(String label,EditText field)'
+          if anchor not in s: raise SystemExit('settingRow marker missing')
+          s=s.replace(anchor,helper+'\n'+anchor,1)
           p.write_text(s)
           mf=Path('jump-tapper/app/src/main/AndroidManifest.xml');ms=mf.read_text().replace('<uses-permission android:name="android.permission.VIBRATE" />','<uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',1);mf.write_text(ms)
-          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.46",28,true);',1)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');t=m.read_text().replace('TextView title=text("Jump Tapper v1.31",28,true);','TextView title=text("Jump Tapper v1.47",28,true);',1)
           marker='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);';repl='        SharedPreferences p=getSharedPreferences(PREFS,MODE_PRIVATE);\n        migrate(p);\n        if(Build.VERSION.SDK_INT>=23&&!Settings.canDrawOverlays(this)&&!p.getBoolean("overlay_permission_prompted",false)){p.edit().putBoolean("overlay_permission_prompted",true).apply();try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(Exception ignored){}}'
           if marker not in t: raise SystemExit('permission marker missing')
-          t=t.replace(marker,repl,1).replace('totalMs=num(saved,8);','totalMs=num(saved,8);totalMs.setOnFocusChangeListener((v,has)->{if(has){totalMode.setChecked(true);showTiming(true);}});',1)
-          sm='cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");';t=t.replace(sm,sm+'\n        View.OnFocusChangeListener sf=(v,has)->{if(has){splitMode.setChecked(true);showTiming(false);}};hours.setOnFocusChangeListener(sf);minutes.setOnFocusChangeListener(sf);seconds.setOnFocusChangeListener(sf);millis.setOnFocusChangeListener(sf);',1)
-          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();';rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",49).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
+          t=t.replace(marker,repl,1)
+          rm='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        requestMaster();';rr='        Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);\n        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putInt("last_ui_build",50).apply();\n        new Handler(Looper.getMainLooper()).postDelayed(()->{Intent reloadLater=new Intent(ACTION_RELOAD);reloadLater.setPackage(getPackageName());sendBroadcast(reloadLater);requestMaster();},700L);\n        requestMaster();'
           if rm not in t: raise SystemExit('reload marker missing')
           t=t.replace(rm,rr,1)
           insert='''\n    @Override public void onWindowFocusChanged(boolean hasFocus){\n        super.onWindowFocusChanged(hasFocus);\n        if(hasFocus&&(Build.VERSION.SDK_INT<23||Settings.canDrawOverlays(this))){Intent reload=new Intent(ACTION_RELOAD);reload.setPackage(getPackageName());sendBroadcast(reload);}\n    }\n''';idx=t.rfind('\n}');t=t[:idx]+insert+t[idx:];m.write_text(t)
-          g=Path('jump-tapper/app/build.gradle');x=g.read_text();y=x.replace("versionCode 35\n        versionName '1.32'","versionCode 49\n        versionName '1.46'");
+          g=Path('jump-tapper/app/build.gradle');x=g.read_text();y=x.replace("versionCode 35\n        versionName '1.32'","versionCode 50\n        versionName '1.47'");
           if y==x: raise SystemExit('version marker missing')
           g.write_text(y)
           PY
@@ -62,12 +70,12 @@ jobs:
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.46_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.47_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           cp "$APKSIGNER" sign-bundle/apksigner
           cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.46_SIGNING_BUNDLE
+          name: JumpTapper_v1.47_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
