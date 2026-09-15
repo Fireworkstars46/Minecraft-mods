@@ -20,13 +20,41 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Apply v1.33 overlay bounds fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
+          s=p.read_text()
+          replacements={
+            'topRow.addView(menu,new LinearLayout.LayoutParams(scaled(46),scaled(46)));':'topRow.addView(menu,new LinearLayout.LayoutParams(scaled(36),scaled(46)));',
+            'masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",58);':'masterOverlayButton=smallButton(masterEnabled?"ON":"OFF",46);',
+            'startStop=smallButton("START",80);':'startStop=smallButton("START",62);',
+            'moveButton=smallButton(moveMode?"LOCK":"MOVE",66);':'moveButton=smallButton(moveMode?"LOCK":"MOVE",52);',
+            'tapButton=smallButton("TAP",54);':'tapButton=smallButton("TAP",44);',
+            'targetButton=smallButton("J",42);':'targetButton=smallButton("J",34);',
+            'settingsButton=smallButton("SET",54);':'settingsButton=smallButton("SET",44);',
+            'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.90f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.72f);':'int maxW=(int)(getResources().getDisplayMetrics().widthPixels*0.96f);int maxH=(int)(getResources().getDisplayMetrics().heightPixels*0.60f);',
+            'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);controlParams.gravity':'WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);controlParams.gravity',
+            'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}':'if(open){collapsed=false;if(buttons!=null)buttons.setVisibility(View.VISIBLE);syncOverlayFields();if(controlParams!=null){controlParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;controlParams.flags&=~WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;int screenH=getResources().getDisplayMetrics().heightPixels;int safeBottom=dp(96);int top=Math.max(0,controlParams.y);int rowH=scaled(46);int available=Math.max(dp(220),screenH-top-rowH-safeBottom);if(settingsScroll!=null){android.view.ViewGroup.LayoutParams lp=settingsScroll.getLayoutParams();lp.height=Math.min((int)(screenH*0.60f),available);settingsScroll.setLayoutParams(lp);}try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}}'
+          }
+          for old,new in replacements.items():
+              if old not in s:
+                  raise SystemExit('Expected source text not found: '+old[:100])
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          g=Path('jump-tapper/app/build.gradle')
+          t=g.read_text().replace("versionCode 35\n        versionName '1.32'","versionCode 36\n        versionName '1.33'")
+          if t==g.read_text(): raise SystemExit('Version text not found')
+          g.write_text(t)
+          PY
       - name: Build unsigned release APK
         working-directory: jump-tapper
         run: gradle assembleRelease
       - name: Package unsigned APK and apksigner tool
         run: |
           mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.32_unsigned.apk
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.33_unsigned.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
           APKSIGNER_DIR=$(dirname "$APKSIGNER")
           cp "$APKSIGNER" sign-bundle/apksigner
@@ -34,6 +62,6 @@ jobs:
       - name: Upload signing bundle
         uses: actions/upload-artifact@v4
         with:
-          name: JumpTapper_v1.32_SIGNING_BUNDLE
+          name: JumpTapper_v1.33_SIGNING_BUNDLE
           path: sign-bundle
           if-no-files-found: error
