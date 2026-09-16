@@ -19,49 +19,48 @@ jobs:
           import yaml,subprocess
           doc=yaml.safe_load(Path('.github/workflows/build-jump-tapper-v159.yml').read_text())
           for name in ['Generate v1.58 source','Apply v1.59 full button checks and maximum-speed zero-ms path']:
-              st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')==name)
-              fn='/tmp/'+name.split()[1].lower()+'.sh';Path(fn).write_text(st['run']);subprocess.run(['bash',fn],check=True)
+              st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')==name);fn='/tmp/'+name.split()[1].lower()+'.sh';Path(fn).write_text(st['run']);subprocess.run(['bash',fn],check=True)
           PY
       - name: Add missing main-app actions to floating SET
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
-          # Add explicit service->activity action bridge. File/document actions must be performed
-          # by the normal Activity because accessibility overlays cannot own Activity result flows.
-          cls='public static final String ACTION_MAIN_UI_TEST_RESULT="com.example.robloxjumptapper.MAIN_UI_TEST_RESULT";'
-          s=s.replace(cls,cls+'\n    public static final String ACTION_MAIN_APP_COMMAND="com.example.robloxjumptapper.MAIN_APP_COMMAND";',1)
-          # Insert a full Main-app actions section before the overlay's reset section.
-          anchor='        addSection("Reset");'
-          assert anchor in s
-          block='''        addSection("Main app actions");\n        Button ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS");ovAccessibility.setOnClickListener(v->sendMainCommand("accessibility"));settingsContent.addView(ovAccessibility,new LinearLayout.LayoutParams(-1,dp(46)));\n        Button ovDownloadLog=panelButton("DOWNLOAD LOG FILE");ovDownloadLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("download_log");});settingsContent.addView(ovDownloadLog,new LinearLayout.LayoutParams(-1,dp(46)));\n        LinearLayout logRow=new LinearLayout(this);logRow.setOrientation(LinearLayout.HORIZONTAL);Button ovShareLog=panelButton("SHARE LOG");ovShareLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("share_log");});logRow.addView(ovShareLog,new LinearLayout.LayoutParams(0,dp(46),1));Button ovClearLog=panelButton("CLEAR LOG");ovClearLog.setOnClickListener(v->sendMainCommand("clear_log"));logRow.addView(ovClearLog,new LinearLayout.LayoutParams(0,dp(46),1));settingsContent.addView(logRow);\n        Button ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)");ovListen.setOnClickListener(v->armCapture());settingsContent.addView(ovListen,new LinearLayout.LayoutParams(-1,dp(46)));\n        Button ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)");ovClearKey.setOnClickListener(v->clearOverlayKeybind());settingsContent.addView(ovClearKey,new LinearLayout.LayoutParams(-1,dp(46)));\n'''
-          s=s.replace(anchor,block+anchor,1)
-          # Command helper starts/opens MainActivity and tells it which normal-app action to perform.
-          helper='''    private void sendMainCommand(String cmd){Intent a=new Intent(this,MainActivity.class);a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.putExtra("jt_command",cmd);startActivity(a);}\n\n'''
-          anchor2='    private void resetPositions(){'
-          assert anchor2 in s;s=s.replace(anchor2,helper+anchor2,1)
-          p.write_text(s)
-
+          # Insert before the existing Apply button, which is a stable end-of-SET anchor.
+          anchor='Button apply=panelButton("APPLY ALL SETTINGS")'
+          pos=s.find(anchor);assert pos>=0
+          block='''addSection("Main app actions");
+        Button ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS");ovAccessibility.setOnClickListener(v->sendMainCommand("accessibility"));settingsContent.addView(ovAccessibility,new LinearLayout.LayoutParams(-1,dp(46)));
+        Button ovDownloadLog=panelButton("DOWNLOAD LOG FILE");ovDownloadLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("download_log");});settingsContent.addView(ovDownloadLog,new LinearLayout.LayoutParams(-1,dp(46)));
+        LinearLayout logRow=new LinearLayout(this);logRow.setOrientation(LinearLayout.HORIZONTAL);Button ovShareLog=panelButton("SHARE LOG");ovShareLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("share_log");});logRow.addView(ovShareLog,new LinearLayout.LayoutParams(0,dp(46),1));Button ovClearLog=panelButton("CLEAR LOG");ovClearLog.setOnClickListener(v->sendMainCommand("clear_log"));logRow.addView(ovClearLog,new LinearLayout.LayoutParams(0,dp(46),1));settingsContent.addView(logRow);
+        Button ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)");ovListen.setOnClickListener(v->armCapture());settingsContent.addView(ovListen,new LinearLayout.LayoutParams(-1,dp(46)));
+        Button ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)");ovClearKey.setOnClickListener(v->clearOverlayKeybind());settingsContent.addView(ovClearKey,new LinearLayout.LayoutParams(-1,dp(46)));
+        '''
+          s=s[:pos]+block+s[pos:]
+          anchor2='    private void resetPositions(){';assert anchor2 in s
+          s=s.replace(anchor2,'    private void sendMainCommand(String cmd){Intent a=new Intent(this,MainActivity.class);a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.putExtra("jt_command",cmd);startActivity(a);}\n\n'+anchor2,1);p.write_text(s)
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text()
-          # Handle commands both when activity is first opened and when it is already alive.
-          marker='        requestMaster();\n    }'
-          assert marker in x;x=x.replace(marker,'        requestMaster();\n        handleOverlayCommand(getIntent());\n    }',1)
-          anchor='    private void migrate(SharedPreferences p){'
-          helper='''    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleOverlayCommand(i);}\n    private void handleOverlayCommand(Intent i){if(i==null)return;String c=i.getStringExtra("jt_command");if(c==null)return;i.removeExtra("jt_command");switch(c){case "accessibility":startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));break;case "download_log":downloadLog();break;case "share_log":shareLog();break;case "clear_log":clearLog();break;}}\n\n'''
-          assert anchor in x;x=x.replace(anchor,helper+anchor,1)
-          x=x.replace('Jump Tapper v1.59','Jump Tapper v1.60')
-          m.write_text(x)
+          # Add command handling at onResume: works whether MainActivity is new or already open.
+          anchor='    private void save(){';assert anchor in x
+          helper='''    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleOverlayCommand(i);}
+    private void handleOverlayCommand(Intent i){if(i==null)return;String c=i.getStringExtra("jt_command");if(c==null)return;i.removeExtra("jt_command");switch(c){case "accessibility":startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));break;case "download_log":downloadLog();break;case "share_log":shareLog();break;case "clear_log":clearLog();break;}}
+
+'''
+          x=x.replace(anchor,helper+anchor,1)
+          # Ensure initial/new intent is consumed whenever the activity becomes visible.
+          old='        requestMaster();\n    }';assert old in x;x=x.replace(old,'        requestMaster();\n        handleOverlayCommand(getIntent());\n    }',1)
+          x=x.replace('Jump Tapper v1.59','Jump Tapper v1.60');m.write_text(x)
           g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 62','versionCode 63').replace("versionName '1.59'","versionName '1.60'");g.write_text(z)
           PY
       - name: Verify v1.60 SET parity
         run: |
           S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
-          grep -F 'Button ovDownloadLog=panelButton("DOWNLOAD LOG FILE")' "$S"
-          grep -F 'Button ovShareLog=panelButton("SHARE LOG")' "$S"
-          grep -F 'Button ovClearLog=panelButton("CLEAR LOG")' "$S"
-          grep -F 'Button ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS")' "$S"
-          grep -F 'Button ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)")' "$S"
-          grep -F 'Button ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)")' "$S"
+          grep -F 'ovDownloadLog=panelButton("DOWNLOAD LOG FILE")' "$S"
+          grep -F 'ovShareLog=panelButton("SHARE LOG")' "$S"
+          grep -F 'ovClearLog=panelButton("CLEAR LOG")' "$S"
+          grep -F 'ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS")' "$S"
+          grep -F 'ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)")' "$S"
+          grep -F 'ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)")' "$S"
           grep -F 'handleOverlayCommand' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
       - name: Build
         working-directory: jump-tapper
