@@ -8,8 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 4
+        with: {fetch-depth: 4}
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '17'}
       - uses: gradle/actions/setup-gradle@v4
@@ -18,22 +17,17 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import subprocess, yaml
+          import subprocess,yaml
+          main=yaml.safe_load(Path('.github/workflows/build-jump-tapper.yml').read_text())
+          st=next(q for q in main['jobs']['build']['steps'] if q.get('name')=='Apply v1.51 full overlay settings sync')
+          Path('/tmp/v151.sh').write_text(st['run']);subprocess.run(['bash','/tmp/v151.sh'],check=True)
           old=subprocess.check_output(['git','show','14c3032d07dfd29f6b88e6d62aed42ce349c1046:.github/workflows/build-jump-tapper-v152.yml'],text=True)
-          doc=yaml.safe_load(old)
-          steps=doc['jobs']['build']['steps']
-          wanted={'Apply v1.51 base':'/tmp/base.sh','Apply v1.57 full sync and exhaustive self-test':'/tmp/v157.sh'}
-          for st in steps:
-            if st.get('name') in wanted:
-              Path(wanted[st['name']]).write_text(st['run']);subprocess.run(['bash',wanted[st['name']]],check=True)
-          assert all(Path(v).exists() for v in wanted.values())
+          doc=yaml.safe_load(old);st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')=='Apply v1.57 full sync and exhaustive self-test')
+          Path('/tmp/v157.sh').write_text(st['run']);subprocess.run(['bash','/tmp/v157.sh'],check=True)
           PY
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
-          s=s.replace('private EditText ovHours,ovMinutes,ovSeconds,ovMillis,ovTotal,ovHold,ovDelay,ovTargetSize,ovControlScale,ovTargetOpacity,ovControlOpacity,ovHaptic;','private EditText ovHours,ovMinutes,ovSeconds,ovMillis,ovTotal,ovHold,ovDelay,ovTargetSize,ovControlScale,ovTargetOpacity,ovControlOpacity,ovHaptic;\n    private TextView ovSelfTestResult;',1)
-          needle='settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));';assert needle in s;s=s.replace(needle,needle+'\n        ovSelfTestResult=panelText("Test result will appear here.",13,true);ovSelfTestResult.setTextColor(0xFFFFFFFF);ovSelfTestResult.setBackgroundColor(0xFF202124);ovSelfTestResult.setPadding(dp(10),dp(8),dp(10),dp(8));settingsContent.addView(ovSelfTestResult,new LinearLayout.LayoutParams(-1,-2));',1)
-          old='Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"":" — "+bad));';assert old in s;s=s.replace(old,'String result="FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad.toString().trim());if(ovSelfTestResult!=null)ovSelfTestResult.setText(result);Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail);',1);p.write_text(s)
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text();s=s.replace('private EditText ovHours,ovMinutes,ovSeconds,ovMillis,ovTotal,ovHold,ovDelay,ovTargetSize,ovControlScale,ovTargetOpacity,ovControlOpacity,ovHaptic;','private EditText ovHours,ovMinutes,ovSeconds,ovMillis,ovTotal,ovHold,ovDelay,ovTargetSize,ovControlScale,ovTargetOpacity,ovControlOpacity,ovHaptic;\n    private TextView ovSelfTestResult;',1);needle='settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));';assert needle in s;s=s.replace(needle,needle+'\n        ovSelfTestResult=panelText("Test result will appear here.",13,true);ovSelfTestResult.setTextColor(0xFFFFFFFF);ovSelfTestResult.setBackgroundColor(0xFF202124);ovSelfTestResult.setPadding(dp(10),dp(8),dp(10),dp(8));settingsContent.addView(ovSelfTestResult,new LinearLayout.LayoutParams(-1,-2));',1);old='Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"":" — "+bad));';assert old in s;s=s.replace(old,'String result="FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad.toString().trim());if(ovSelfTestResult!=null)ovSelfTestResult.setText(result);Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail);',1);p.write_text(s)
           m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text();x=x.replace('private TextView masterState,comboLabel;','private TextView masterState,comboLabel,selfTestResultMain;',1);needle='root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));';assert needle in x;x=x.replace(needle,needle+'\n        selfTestResultMain=text("Test result will appear here.",14,true);selfTestResultMain.setPadding(dp(8),dp(8),dp(8),dp(8));root.addView(selfTestResultMain);',1);old='else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");toast("FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"":" — "+bad));}';assert old in x;x=x.replace(old,'else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");String result="FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad);if(selfTestResultMain!=null)selfTestResultMain.setText(result);toast("FULL TEST: PASS "+pa+" / FAIL "+fa);}',1);x=x.replace('Jump Tapper v1.57','Jump Tapper v1.58');m.write_text(x);g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 60','versionCode 61').replace("versionName '1.57'","versionName '1.58'");g.write_text(z)
           PY
       - name: Verify v1.58 result UI
