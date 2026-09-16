@@ -1,0 +1,116 @@
+name: Build Jump Tapper v1.59 APK
+'on':
+  push:
+    branches: [build-jump-tapper-apk]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Generate v1.58 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml,subprocess
+          doc=yaml.safe_load(Path('.github/workflows/build-jump-tapper-v152.yml').read_text())
+          st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')=='Generate v1.57 source then add v1.58 result panels')
+          Path('/tmp/v158.sh').write_text(st['run'])
+          subprocess.run(['bash','/tmp/v158.sh'],check=True)
+          PY
+      - name: Apply v1.59 full button checks and maximum-speed zero-ms path
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java')
+          s=p.read_text()
+          # Zero-ms maximum-performance path: one new gesture immediately after the previous
+          # gesture completes instead of polling the main Handler every 1 ms while busy.
+          old='''        performTargetTap(false);\n        long step=intervalMs<=0L?1L:intervalMs;\n        nextTapUptime+=step;'''
+          new='''        performTargetTap(false);\n        if(intervalMs<=0L)return;\n        long step=intervalMs;\n        nextTapUptime+=step;'''
+          assert old in s
+          s=s.replace(old,new,1)
+          old='''        tapInProgress=true;tapStart=SystemClock.elapsedRealtime();long hold=Math.max(1L,tapDurationMs);log("TAP_REQUEST seq="+n+" manual="+manual+" holdMs="+tapDurationMs);dispatchHoldSegment(n,manual,x,y,hold,null);'''
+          new='''        tapInProgress=true;tapStart=SystemClock.elapsedRealtime();long hold=Math.max(1L,tapDurationMs);if(manual||intervalMs>0L||n%250L==0L)log("TAP_REQUEST seq="+n+" manual="+manual+" holdMs="+tapDurationMs);dispatchHoldSegment(n,manual,x,y,hold,null);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          old='''    private void finish(long n,boolean cancelled){long d=Math.max(0L,SystemClock.elapsedRealtime()-tapStart);tapInProgress=false;log((cancelled?"TAP_CANCEL":"TAP_COMPLETE")+" seq="+n+" durationMs="+d);if(!running)touchability();}'''
+          new='''    private void finish(long n,boolean cancelled){long d=Math.max(0L,SystemClock.elapsedRealtime()-tapStart);tapInProgress=false;if(cancelled||intervalMs>0L||n%250L==0L)log((cancelled?"TAP_CANCEL":"TAP_COMPLETE")+" seq="+n+" durationMs="+d);if(!running)touchability();else if(intervalMs<=0L)h.post(loop);}'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Let the service receive the MainActivity UI/button test result so the floating SET
+          # panel can show it too.
+          cls='public class TapAccessibilityService extends AccessibilityService {'
+          s=s.replace(cls,cls+'\n    public static final String ACTION_MAIN_UI_TEST_RESULT="com.example.robloxjumptapper.MAIN_UI_TEST_RESULT";',1)
+          marker='if(ACTION_RUN_FULL_SELF_TEST.equals(a)){runFullAppSelfTest();return;}'
+          assert marker in s
+          s=s.replace(marker,marker+'\n        if(ACTION_MAIN_UI_TEST_RESULT.equals(a)){String r=i.getStringExtra("result");if(ovSelfTestResult!=null&&r!=null)ovSelfTestResult.setText(ovSelfTestResult.getText()+"\\n"+r);return;}',1)
+          # Register response action.
+          old='f.addAction(ACTION_RUN_FULL_SELF_TEST);'
+          assert old in s
+          s=s.replace(old,old+'f.addAction(ACTION_MAIN_UI_TEST_RESULT);',1)
+          # Ask the main screen to run its own UI/button listener checks whenever full test runs.
+          old='sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail);'
+          assert old in s
+          s=s.replace(old,'sendBroadcast(out);Intent ui=new Intent(MainActivity.ACTION_RUN_MAIN_UI_TEST);ui.setPackage(getPackageName());sendBroadcast(ui);toast("FULL TEST: PASS "+pass+" / FAIL "+fail);',1)
+          p.write_text(s)
+
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java')
+          x=m.read_text()
+          cls='public class MainActivity extends Activity {'
+          x=x.replace(cls,cls+'\n    public static final String ACTION_RUN_MAIN_UI_TEST="com.example.robloxjumptapper.RUN_MAIN_UI_TEST";',1)
+          # MainActivity receiver: verify every visible main-screen Button has a click listener,
+          # including Download Log, Save, reset buttons, keybind controls, accessibility, master,
+          # presets, and the full-test button. Also verify every text/numeric input exists/enabled.
+          old='else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");String result="FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad);if(selfTestResultMain!=null)selfTestResultMain.setText(result);toast("FULL TEST: PASS "+pa+" / FAIL "+fa);}'
+          assert old in x
+          new=old+'else if(ACTION_RUN_MAIN_UI_TEST.equals(i.getAction())){runMainUiSelfTest();}'
+          x=x.replace(old,new,1)
+          old='f.addAction(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT);'
+          assert old in x
+          x=x.replace(old,old+'f.addAction(ACTION_RUN_MAIN_UI_TEST);',1)
+          # Add recursive runtime checker. It checks actual Button listener attachment rather than
+          # merely looking for strings in the APK. External/destructive buttons are NOT clicked.
+          anchor='    private void loadMainUiFromPrefs(){'
+          assert anchor in x
+          helper='''    private void collectUiTest(View v,int[] c,StringBuilder bad){\n        if(v instanceof Button){c[0]++;Button b=(Button)v;CharSequence t=b.getText();if(!b.hasOnClickListeners()){c[1]++;bad.append("BUTTON[").append(t).append("] ");}}\n        if(v instanceof EditText){c[2]++;if(!v.isEnabled()){c[3]++;bad.append("INPUT_DISABLED ");}}\n        if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int n=0;n<g.getChildCount();n++)collectUiTest(g.getChildAt(n),c,bad);}\n    }\n    private void runMainUiSelfTest(){\n        int[] c={0,0,0,0};StringBuilder bad=new StringBuilder();View root=getWindow().getDecorView();collectUiTest(root,c,bad);\n        String[] required={"Open Accessibility Settings","ON","OFF","LISTEN FOR OVERLAY BUTTON(S)","CLEAR RECORDED OVERLAY BUTTON(S)","Reset positions","Reset settings","DOWNLOAD LOG FILE","Share Log","Clear Log","Save Settings","TEST EVERY SETTING + BUTTON"};\n        String all=uiText(root);int missing=0;for(String q:required){if((q.equals("ON")||q.equals("OFF"))?(all.indexOf("ON")<0&&all.indexOf("OFF")<0):all.indexOf(q)<0){missing++;bad.append("MISSING[").append(q).append("] ");}}\n        int fail=c[1]+c[3]+missing;String r="MAIN UI: "+(fail==0?"PASS":"FAIL")+" | buttons="+c[0]+" inputs="+c[2]+(fail==0?"":" | "+bad.toString().trim());\n        if(selfTestResultMain!=null)selfTestResultMain.setText(selfTestResultMain.getText()+"\\n"+r);Intent out=new Intent(TapAccessibilityService.ACTION_MAIN_UI_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("result",r);sendBroadcast(out);\n    }\n    private String uiText(View v){StringBuilder b=new StringBuilder();if(v instanceof TextView)b.append(((TextView)v).getText()).append('\\n');if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int n=0;n<g.getChildCount();n++)b.append(uiText(g.getChildAt(n)));}return b.toString();}\n\n'''
+          x=x.replace(anchor,helper+anchor,1)
+          x=x.replace('Jump Tapper v1.58','Jump Tapper v1.59')
+          m.write_text(x)
+          g=Path('jump-tapper/app/build.gradle')
+          z=g.read_text().replace('versionCode 61','versionCode 62').replace("versionName '1.58'","versionName '1.59'")
+          g.write_text(z)
+          PY
+      - name: Verify v1.59 source
+        run: |
+          grep -F 'if(intervalMs<=0L)return;' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'n%250L==0L' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'ACTION_MAIN_UI_TEST_RESULT' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'DOWNLOAD LOG FILE' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'runMainUiSelfTest' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'hasOnClickListeners' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+      - name: Build
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Verify APK
+        run: |
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          unzip -p "$APK" classes.dex | strings | grep -F 'MAIN UI:'
+          unzip -p "$APK" classes.dex | strings | grep -F 'DOWNLOAD LOG FILE'
+          unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.59'
+      - name: Package
+        run: |
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.59_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          cp "$A" sign-bundle/apksigner
+          cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpTapper_v1.59_SIGNING_BUNDLE
+          path: sign-bundle

@@ -1,0 +1,75 @@
+name: Build Jump Tapper v1.60 APK
+'on':
+  push:
+    branches: [build-jump-tapper-apk]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Generate v1.59 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml,subprocess
+          doc=yaml.safe_load(Path('.github/workflows/build-jump-tapper-v159.yml').read_text())
+          for name in ['Generate v1.58 source','Apply v1.59 full button checks and maximum-speed zero-ms path']:
+              st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')==name)
+              fn='/tmp/'+name.split()[1].lower()+'.sh';Path(fn).write_text(st['run']);subprocess.run(['bash',fn],check=True)
+          PY
+      - name: Add SET action parity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
+          anchor='settingsContent.addView(ovSelfTestResult'
+          pos=s.find(anchor);assert pos>=0
+          pos=s.find(';',pos)+1;assert pos>0
+          lines=['addSection("Main app actions");','Button ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS");ovAccessibility.setOnClickListener(v->sendMainCommand("accessibility"));settingsContent.addView(ovAccessibility,new LinearLayout.LayoutParams(-1,dp(46)));','Button ovDownloadLog=panelButton("DOWNLOAD LOG FILE");ovDownloadLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("download_log");});settingsContent.addView(ovDownloadLog,new LinearLayout.LayoutParams(-1,dp(46)));','LinearLayout logRow=new LinearLayout(this);logRow.setOrientation(LinearLayout.HORIZONTAL);Button ovShareLog=panelButton("SHARE LOG");ovShareLog.setOnClickListener(v->{flushLogsNow();sendMainCommand("share_log");});logRow.addView(ovShareLog,new LinearLayout.LayoutParams(0,dp(46),1));Button ovClearLog=panelButton("CLEAR LOG");ovClearLog.setOnClickListener(v->sendMainCommand("clear_log"));logRow.addView(ovClearLog,new LinearLayout.LayoutParams(0,dp(46),1));settingsContent.addView(logRow);','Button ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)");ovListen.setOnClickListener(v->armCapture());settingsContent.addView(ovListen,new LinearLayout.LayoutParams(-1,dp(46)));','Button ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)");ovClearKey.setOnClickListener(v->clearOverlayKeybind());settingsContent.addView(ovClearKey,new LinearLayout.LayoutParams(-1,dp(46)));']
+          s=s[:pos]+'\n        '+'\n        '.join(lines)+s[pos:]
+          a2='    private void resetPositions(){';assert a2 in s
+          s=s.replace(a2,'    private void sendMainCommand(String cmd){Intent a=new Intent(this,MainActivity.class);a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.putExtra("jt_command",cmd);startActivity(a);}\n\n'+a2,1);p.write_text(s)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text();a3='    private void save(){';assert a3 in x
+          x=x.replace(a3,'    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleOverlayCommand(i);}\n    private void handleOverlayCommand(Intent i){if(i==null)return;String c=i.getStringExtra("jt_command");if(c==null)return;i.removeExtra("jt_command");switch(c){case "accessibility":startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));break;case "download_log":downloadLog();break;case "share_log":shareLog();break;case "clear_log":clearLog();break;}}\n\n'+a3,1)
+          old='        requestMaster();\n    }';assert old in x;x=x.replace(old,'        requestMaster();\n        handleOverlayCommand(getIntent());\n    }',1);x=x.replace('Jump Tapper v1.59','Jump Tapper v1.60');m.write_text(x)
+          g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 62','versionCode 63').replace("versionName '1.59'","versionName '1.60'"))
+          PY
+      - name: Verify v1.60 source
+        run: |
+          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'ovDownloadLog=panelButton("DOWNLOAD LOG FILE")' "$S"
+          grep -F 'ovShareLog=panelButton("SHARE LOG")' "$S"
+          grep -F 'ovClearLog=panelButton("CLEAR LOG")' "$S"
+          grep -F 'ovAccessibility=panelButton("OPEN ACCESSIBILITY SETTINGS")' "$S"
+          grep -F 'ovListen=panelButton("LISTEN FOR OVERLAY BUTTON(S)")' "$S"
+          grep -F 'ovClearKey=panelButton("CLEAR RECORDED OVERLAY BUTTON(S)")' "$S"
+          grep -F 'handleOverlayCommand' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+      - name: Build
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Verify APK
+        run: |
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          unzip -p "$APK" classes.dex | strings | grep -F 'DOWNLOAD LOG FILE'
+          unzip -p "$APK" classes.dex | strings | grep -F 'Main app actions'
+          unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.60'
+      - name: Package
+        run: |
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.60_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          cp "$A" sign-bundle/apksigner
+          cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpTapper_v1.60_SIGNING_BUNDLE
+          path: sign-bundle

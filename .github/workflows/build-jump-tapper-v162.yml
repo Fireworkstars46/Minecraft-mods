@@ -1,0 +1,74 @@
+name: Build Jump Tapper v1.62 APK
+'on':
+  push:
+    branches: [build-jump-tapper-apk]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Generate v1.61 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml,subprocess
+          subprocess.run(['git','fetch','origin','313cf07b030afa58229f4725c00cb33b6d2d08ce'],check=True)
+          subprocess.run(['git','show','313cf07b030afa58229f4725c00cb33b6d2d08ce:.github/workflows/build-jump-tapper-v161.yml'],stdout=open('/tmp/v161.yml','w'),check=True)
+          old=yaml.safe_load(Path('/tmp/v161.yml').read_text())
+          st=next(q for q in old['jobs']['build']['steps'] if q.get('name')=='Generate v1.60 source');Path('/tmp/step.sh').write_text(st['run']);subprocess.run(['bash','/tmp/step.sh'],check=True)
+          st=next(q for q in old['jobs']['build']['steps'] if q.get('name')=='Add movable locked countdown overlay and preserve SET position')
+          run=st['run'].replace('needle=\'settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));\';assert needle in s;s=s.replace(needle,needle+\'\\n        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\',1)', 'anchor=\'        topRow.addView(buttons);control.addView(topRow);\';assert anchor in s;s=s.replace(anchor,\'        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\\n\'+anchor,1)')
+          Path('/tmp/step.sh').write_text(run);subprocess.run(['bash','/tmp/step.sh'],check=True)
+          PY
+      - name: Patch v1.62 orientation positions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          q=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');x=q.read_text()
+          x=x.replace('private boolean timerMoveMode=false;', 'private boolean timerMoveMode=false; private int lastOrientation=0;',1)
+          anchor='    private final Runnable timerLoop=new Runnable()'
+          helper='''    private String orientSuffix(){return getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE?"_land":"_port";}\n    private int opref(SharedPreferences p,String key,int def){return p.getInt(key+orientSuffix(),p.getInt(key,def));}\n    @Override public void onConfigurationChanged(android.content.res.Configuration c){super.onConfigurationChanged(c);h.post(()->handleOrientationChange());}\n    private void handleOrientationChange(){int o=getResources().getConfiguration().orientation;if(o==lastOrientation)return;lastOrientation=o;SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean reopen=settingsOpen;int scroll=settingsScroll==null?0:settingsScroll.getScrollY();if(targetParams!=null){targetParams.x=opref(p,"target_x",dp(250));targetParams.y=opref(p,"target_y",dp(500));try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}}if(timerParams!=null){timerParams.x=opref(p,"timer_x",dp(12));timerParams.y=opref(p,"timer_y",dp(70));try{wm.updateViewLayout(timerOverlay,timerParams);}catch(Exception ignored){}}rebuildControl(reopen);if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.scrollTo(0,scroll));refreshUi();updateTimerOverlay();}\n'''
+          assert anchor in x;x=x.replace(anchor,helper+anchor,1)
+          x=x.replace('timerParams.x=p.getInt("timer_x",dp(12));timerParams.y=p.getInt("timer_y",dp(70));','timerParams.x=opref(p,"timer_x",dp(12));timerParams.y=opref(p,"timer_y",dp(70));',1)
+          x=x.replace('.putInt("timer_x",timerParams.x).putInt("timer_y",timerParams.y).apply();','.putInt("timer_x"+orientSuffix(),timerParams.x).putInt("timer_y"+orientSuffix(),timerParams.y).apply();',1)
+          x=x.replace('wm=(WindowManager)getSystemService(WINDOW_SERVICE);','wm=(WindowManager)getSystemService(WINDOW_SERVICE);lastOrientation=getResources().getConfiguration().orientation;',1)
+          q.write_text(x)
+          m=Path('jump-tapper/app/src/main/AndroidManifest.xml');z=m.read_text();z=z.replace('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"','android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:configChanges="orientation|screenSize|smallestScreenSize"',1) if 'android:configChanges=' not in z else z;m.write_text(z)
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');p.write_text(p.read_text().replace('Jump Tapper v1.61','Jump Tapper v1.62'))
+          g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 64','versionCode 65').replace("versionName '1.61'","versionName '1.62'"))
+          PY
+      - name: Add Days to main app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');s=p.read_text()
+          a='private EditText hours,minutes,seconds,millis,totalMs,tapHold,startDelay,targetSize,controlScale,targetOpacity,controlOpacity,hapticStrength;';assert a in s;s=s.replace(a,a.replace('hours,','days,hours,'),1)
+          a='long hh=saved/3600000,r=saved%3600000,mm=r/60000;\n        r%=60000;long ss=r/1000,mss=r%1000;';b='long dd=saved/86400000L,rem=saved%86400000L,hh=rem/3600000L,r=rem%3600000L,mm=r/60000L;\n        r%=60000L;long ss=r/1000L,mss=r%1000L;';assert a in s;s=s.replace(a,b,1)
+          a='hours=num(hh,4);minutes=num(mm,4);seconds=num(ss,4);millis=num(mss,4);\n        cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");';b='days=num(dd,4);hours=num(hh,4);minutes=num(mm,4);seconds=num(ss,4);millis=num(mss,4);\n        cell(splitRow,days,"d");cell(splitRow,hours,"h");cell(splitRow,minutes,"m");cell(splitRow,seconds,"s");cell(splitRow,millis,"ms");';assert a in s;s=s.replace(a,b,1)
+          s=s.replace('splitMode.setText("H / M / S / ms")','splitMode.setText("D / H / M / S / ms")',1)
+          start=s.index('else interval=Math.addExact(');end=s.index(';',start)+1
+          s=s[:start]+'else interval=val(days)*86400000L+val(hours)*3600000L+val(minutes)*60000L+val(seconds)*1000L+val(millis);'+s[end:]
+          p.write_text(s)
+          PY
+      - name: Verify source
+        run: |
+          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java;M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'onConfigurationChanged' "$S";grep -F 'orientSuffix' "$S";grep -F 'Jump Tapper v1.62' "$M";grep -F 'cell(splitRow,days,"d")' "$M";grep -F 'D / H / M / S / ms' "$M";grep -F 'val(days)*86400000L' "$M"
+      - name: Build
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Verify APK
+        run: |
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk;test -s "$APK";unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62';unzip -p "$APK" classes.dex | strings | grep -F 'D / H / M / S / ms';unzip -p "$APK" classes.dex | strings | grep -F '_land';unzip -p "$APK" classes.dex | strings | grep -F '_port'
+      - name: Package
+        run: |
+          mkdir sign-bundle;cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk;A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with: {name: JumpTapper_v1.62_SIGNING_BUNDLE, path: sign-bundle}
