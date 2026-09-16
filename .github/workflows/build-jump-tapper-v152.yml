@@ -1,0 +1,50 @@
+name: Build Jump Tapper v1.58 APK
+'on':
+  push:
+    branches: [build-jump-tapper-apk]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Generate v1.57 source then add v1.58 result panels
+        run: |
+          git fetch origin 14c3032d07dfd29f6b88e6d62aed42ce349c1046 --depth=1
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,yaml
+          main=yaml.safe_load(Path('.github/workflows/build-jump-tapper.yml').read_text());st=next(q for q in main['jobs']['build']['steps'] if q.get('name')=='Apply v1.51 full overlay settings sync');Path('/tmp/v151.sh').write_text(st['run']);subprocess.run(['bash','/tmp/v151.sh'],check=True)
+          old=subprocess.check_output(['git','show','14c3032d07dfd29f6b88e6d62aed42ce349c1046:.github/workflows/build-jump-tapper-v152.yml'],text=True);doc=yaml.safe_load(old);st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')=='Apply v1.57 full sync and exhaustive self-test');Path('/tmp/v157.sh').write_text(st['run']);subprocess.run(['bash','/tmp/v157.sh'],check=True)
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text();cls='public class TapAccessibilityService extends AccessibilityService {';assert cls in s;s=s.replace(cls,cls+'\n    private TextView ovSelfTestResult;',1);needle='settingsContent.addView(selfTest,new LinearLayout.LayoutParams(-1,dp(56)));';assert needle in s;s=s.replace(needle,needle+'\n        ovSelfTestResult=panelText("Test result will appear here.",13,true);ovSelfTestResult.setTextColor(0xFFFFFFFF);ovSelfTestResult.setBackgroundColor(0xFF202124);ovSelfTestResult.setPadding(dp(10),dp(8),dp(10),dp(8));settingsContent.addView(ovSelfTestResult,new LinearLayout.LayoutParams(-1,-2));',1);old='Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"":" — "+bad));';assert old in s;s=s.replace(old,'String result="FULL TEST: PASS "+pass+" / FAIL "+fail+(fail==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad.toString().trim());if(ovSelfTestResult!=null)ovSelfTestResult.setText(result);Intent out=new Intent(ACTION_FULL_SELF_TEST_RESULT);out.setPackage(getPackageName());out.putExtra("pass",pass);out.putExtra("fail",fail);out.putExtra("bad",bad.toString().trim());sendBroadcast(out);toast("FULL TEST: PASS "+pass+" / FAIL "+fail);',1);p.write_text(s)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');x=m.read_text();cls='public class MainActivity extends Activity {';assert cls in x;x=x.replace(cls,cls+'\n    private TextView selfTestResultMain;',1);needle='root.addView(selfTestMain,new LinearLayout.LayoutParams(-1,dp(56)));';assert needle in x;x=x.replace(needle,needle+'\n        selfTestResultMain=text("Test result will appear here.",14,true);selfTestResultMain.setPadding(dp(8),dp(8),dp(8),dp(8));root.addView(selfTestResultMain);',1);old='else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");toast("FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"":" — "+bad));}';assert old in x;x=x.replace(old,'else if(TapAccessibilityService.ACTION_FULL_SELF_TEST_RESULT.equals(i.getAction())){int pa=i.getIntExtra("pass",0),fa=i.getIntExtra("fail",0);String bad=i.getStringExtra("bad");String result="FULL TEST: PASS "+pa+" / FAIL "+fa+(fa==0?"\\nALL TESTS PASSED":"\\nFAILED: "+bad);if(selfTestResultMain!=null)selfTestResultMain.setText(result);toast("FULL TEST: PASS "+pa+" / FAIL "+fa);}',1);x=x.replace('Jump Tapper v1.57','Jump Tapper v1.58');m.write_text(x);g=Path('jump-tapper/app/build.gradle');z=g.read_text().replace('versionCode 60','versionCode 61').replace("versionName '1.57'","versionName '1.58'");g.write_text(z)
+          PY
+      - name: Verify v1.58 result UI
+        run: |
+          grep -F 'private TextView ovSelfTestResult' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'private TextView selfTestResultMain' jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'ALL TESTS PASSED' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+      - name: Build
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Verify APK
+        run: |
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -p "$APK" classes.dex | strings | grep -F 'Test result will appear here.'
+          unzip -p "$APK" classes.dex | strings | grep -F 'ALL TESTS PASSED'
+      - name: Package
+        run: |
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.58_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpTapper_v1.58_SIGNING_BUNDLE
+          path: sign-bundle
