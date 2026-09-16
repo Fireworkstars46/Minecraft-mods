@@ -2,8 +2,6 @@ name: Build Jump Tapper v1.62 APK
 'on':
   push:
     branches: [build-jump-tapper-apk]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 jobs:
   build:
@@ -27,34 +25,10 @@ jobs:
           run=st['run'].replace('needle=\'settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));\';assert needle in s;s=s.replace(needle,needle+\'\\n        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\',1)', 'anchor=\'        topRow.addView(buttons);control.addView(topRow);\';assert anchor in s;s=s.replace(anchor,\'        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\\n\'+anchor,1)')
           Path('/tmp/step.sh').write_text(run);subprocess.run(['bash','/tmp/step.sh'],check=True)
           PY
-      - name: Patch v1.62 days and orientation
+      - name: Patch v1.62 orientation positions
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');s=p.read_text()
-          # The generated source declares these fields on separate lines, so patch by the Hours field itself.
-          if 'EditText days;' not in s:
-              s=s.replace('EditText hours;', 'EditText days;\n    EditText hours;',1)
-          # Add a Days editor before Hours using the same helper/signature already used by Hours.
-          import re
-          mh=re.search(r'(^\s*hours\s*=\s*addNumberField\([^\n]+)',s,re.M)
-          if mh and 'days=addNumberField' not in s:
-              hline=mh.group(1);dline=re.sub(r'\bhours\s*=', 'days=', hline,1).replace('"Hours"','"Days"')
-              # Days can be much larger than 23 because interval supports up to 24h+ in later builds; cap safely at 3650.
-              dline=re.sub(r',\s*0\s*,\s*\d+\s*,\s*0\s*\);\s*$',',0,3650,0);',dline)
-              s=s[:mh.start()]+dline+'\n'+s[mh.start():]
-          # Extend interval load decomposition. Locate the exact hours assignment derived from interval.
-          # Common generated source uses interval_ms -> h/m/s/ms.
-          if 'days.setText' not in s:
-              s=s.replace('hours.setText(String.valueOf((iv/3600000L)%24L));','days.setText(String.valueOf(iv/86400000L));\n        hours.setText(String.valueOf((iv/3600000L)%24L));',1)
-              s=s.replace('hours.setText(String.valueOf(interval/3600000L));','days.setText(String.valueOf(interval/86400000L));\n        hours.setText(String.valueOf((interval/3600000L)%24L));',1)
-          # Extend save calculation by recognizing the actual val(...) form flexibly.
-          s=re.sub(r'long\s+h\s*=\s*val\(hours\)\s*,\s*m\s*=\s*val\(minutes\)\s*,\s*sec\s*=\s*val\(seconds\)\s*,\s*ms\s*=\s*val\(millis\)\s*;', 'long d=val(days), h=val(hours), m=val(minutes), sec=val(seconds), ms=val(millis);',s,count=1)
-          s=re.sub(r'long\s+interval\s*=\s*\(\(h\*60L\+m\)\*60L\+sec\)\*1000L\+ms\s*;', 'long interval=((((d*24L+h)*60L+m)*60L+sec)*1000L)+ms;',s,count=1)
-          # If save is directly inside putLong, add days there.
-          s=s.replace('((val(hours)*60L+val(minutes))*60L+val(seconds))*1000L+val(millis)', '(((val(days)*24L+val(hours))*60L+val(minutes))*60L+val(seconds))*1000L+val(millis)')
-          p.write_text(s)
-
           q=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');x=q.read_text()
           x=x.replace('private boolean timerMoveMode=false;', 'private boolean timerMoveMode=false; private int lastOrientation=0;',1)
           anchor='    private final Runnable timerLoop=new Runnable()'
@@ -70,20 +44,16 @@ jobs:
           PY
       - name: Verify source
         run: |
-          M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java;S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
-          grep -F 'EditText days;' "$M"
-          grep -F 'days=addNumberField' "$M"
-          grep -F 'onConfigurationChanged' "$S"
-          grep -F 'orientSuffix' "$S"
-          grep -F 'Jump Tapper v1.62' "$M"
+          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java; M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'onConfigurationChanged' "$S"; grep -F 'orientSuffix' "$S"; grep -F 'Jump Tapper v1.62' "$M"
       - name: Build
         working-directory: jump-tapper
         run: gradle assembleRelease
       - name: Verify APK
         run: |
-          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk;test -s "$APK";unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62';unzip -p "$APK" classes.dex | strings | grep -F 'Days';unzip -p "$APK" classes.dex | strings | grep -F '_land';unzip -p "$APK" classes.dex | strings | grep -F '_port'
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk; test -s "$APK"; unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62'; unzip -p "$APK" classes.dex | strings | grep -F '_land'; unzip -p "$APK" classes.dex | strings | grep -F '_port'
       - name: Package
         run: |
-          mkdir sign-bundle;cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk;A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+          mkdir sign-bundle; cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk; A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1); cp "$A" sign-bundle/apksigner; cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with: {name: JumpTapper_v1.62_SIGNING_BUNDLE, path: sign-bundle}
