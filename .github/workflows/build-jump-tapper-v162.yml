@@ -19,82 +19,63 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import yaml,subprocess
-          doc=yaml.safe_load(Path('.github/workflows/build-jump-tapper-v162.yml').read_text())
-          # Reuse the known-good v1.61 fixed workflow from the parent revision.
-          subprocess.run(['git','show','313cf07b030afa58229f4725c00cb33b6d2d08ce:.github/workflows/build-jump-tapper-v162.yml'],stdout=open('/tmp/v161.yml','w'),check=True)
+          subprocess.run(['git','fetch','origin','313cf07b030afa58229f4725c00cb33b6d2d08ce'],check=True)
+          subprocess.run(['git','show','313cf07b030afa58229f4725c00cb33b6d2d08ce:.github/workflows/build-jump-tapper-v161.yml'],stdout=open('/tmp/v161.yml','w'),check=True)
           old=yaml.safe_load(Path('/tmp/v161.yml').read_text())
-          for name in ['Generate v1.60 source','Patch v1.61']:
-              st=next(q for q in old['jobs']['build']['steps'] if q.get('name')==name)
-              Path('/tmp/step.sh').write_text(st['run']);subprocess.run(['bash','/tmp/step.sh'],check=True)
+          # Use v1.61 fixed-equivalent generation, then correct its one fragile timer-button anchor.
+          for name in ['Generate v1.60 source']:
+              st=next(q for q in old['jobs']['build']['steps'] if q.get('name')==name);Path('/tmp/step.sh').write_text(st['run']);subprocess.run(['bash','/tmp/step.sh'],check=True)
+          # Pull the successful v1.61 patch script from workflow-run-known source by transforming the original patch anchor.
+          st=next(q for q in old['jobs']['build']['steps'] if q.get('name')=='Add movable locked countdown overlay and preserve SET position')
+          run=st['run'].replace('needle=\'settingsButton=smallButton("SET",54);settingsButton.setOnClickListener(v->setSettingsOpen(!settingsOpen));\';assert needle in s;s=s.replace(needle,needle+\'\\n        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\',1)', 'anchor=\'        topRow.addView(buttons);control.addView(topRow);\';assert anchor in s;s=s.replace(anchor,\'        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\\n\'+anchor,1)')
+          Path('/tmp/step.sh').write_text(run);subprocess.run(['bash','/tmp/step.sh'],check=True)
           PY
       - name: Patch v1.62 days and orientation
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');s=p.read_text()
-          # Main app: expose Days alongside H/M/S/MS and keep using the same interval_ms source of truth.
           s=s.replace('private EditText hours,minutes,seconds,millis,totalMillis;', 'private EditText days,hours,minutes,seconds,millis,totalMillis;')
+          # Generated MainActivity creates fields with addNumberField. Add Days immediately before Hours.
+          s=s.replace('hours=addNumberField(root,"Hours",', 'days=addNumberField(root,"Days",0,23,0);\n        hours=addNumberField(root,"Hours",',1)
+          # If split row form exists, support it too.
           old='row.addView(labeled("H",hours));row.addView(labeled("M",minutes));row.addView(labeled("S",seconds));row.addView(labeled("MS",millis));'
-          if old in s:
-              s=s.replace(old,'row.addView(labeled("D",days));'+old,1)
-          # Insert Days input wherever Hours is initialized.
-          s=s.replace('hours=num("0");minutes=num("0");seconds=num("0");millis=num("0");','days=num("0");hours=num("0");minutes=num("0");seconds=num("0");millis=num("0");',1)
-          # Main load/save interval math: include days. Handle common generated forms.
+          if old in s:s=s.replace(old,'row.addView(labeled("D",days));'+old,1)
+          # Save interval: prepend days where the split fields are converted.
+          s=s.replace('long h=val(hours), m=val(minutes), sec=val(seconds), ms=val(millis);','long d=val(days), h=val(hours), m=val(minutes), sec=val(seconds), ms=val(millis);',1)
+          s=s.replace('long interval=((h*60L+m)*60L+sec)*1000L+ms;','long interval=((((d*24L+h)*60L+m)*60L+sec)*1000L)+ms;',1)
           s=s.replace('long h=parse(hours),m=parse(minutes),sec=parse(seconds),ms=parse(millis);','long d=parse(days),h=parse(hours),m=parse(minutes),sec=parse(seconds),ms=parse(millis);',1)
           s=s.replace('long interval=((h*60L+m)*60L+sec)*1000L+ms;','long interval=((((d*24L+h)*60L+m)*60L+sec)*1000L)+ms;',1)
-          # Populate D from interval during UI reload if generated code has split decomposition.
+          # Reload UI: derive Days from interval if standard decomposition is present.
           s=s.replace('long rem=interval;', 'long rem=interval;days.setText(String.valueOf(rem/86400000L));rem%=86400000L;',1)
           p.write_text(s)
 
           q=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');x=q.read_text()
-          # Orientation-aware position keys for timer/control/target. Existing values remain fallback.
-          x=x.replace('private boolean timerMoveMode=false;', 'private boolean timerMoveMode=false; private int lastOrientation=0;')
+          x=x.replace('private boolean timerMoveMode=false;', 'private boolean timerMoveMode=false; private int lastOrientation=0;',1)
           anchor='    private final Runnable timerLoop=new Runnable()'
-          helper='''    private String orientSuffix(){return getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE?"_land":"_port";}\n    private int opref(SharedPreferences p,String key,int def){return p.getInt(key+orientSuffix(),p.getInt(key,def));}\n    private void saveOrientPos(String base,int x,int y){getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt(base+"_x"+orientSuffix(),x).putInt(base+"_y"+orientSuffix(),y).apply();}\n    @Override public void onConfigurationChanged(android.content.res.Configuration c){super.onConfigurationChanged(c);h.post(()->handleOrientationChange());}\n    private void handleOrientationChange(){int o=getResources().getConfiguration().orientation;if(o==lastOrientation)return;lastOrientation=o;SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean reopen=settingsOpen;int scroll=settingsScroll==null?0:settingsScroll.getScrollY();if(controlParams!=null){controlParams.x=opref(p,"control_x",dp(8));controlParams.y=opref(p,"control_y",dp(80));}if(targetParams!=null){targetParams.x=opref(p,"target_x",dp(250));targetParams.y=opref(p,"target_y",dp(500));try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}}if(timerParams!=null){timerParams.x=opref(p,"timer_x",dp(12));timerParams.y=opref(p,"timer_y",dp(70));try{wm.updateViewLayout(timerOverlay,timerParams);}catch(Exception ignored){}}rebuildControl(reopen);if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.scrollTo(0,scroll));refreshUi();updateTimerOverlay();}\n'''
-          if anchor in x:x=x.replace(anchor,helper+anchor,1)
-          # v1.61 timer load/save become orientation-aware.
+          helper='''    private String orientSuffix(){return getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE?"_land":"_port";}\n    private int opref(SharedPreferences p,String key,int def){return p.getInt(key+orientSuffix(),p.getInt(key,def));}\n    @Override public void onConfigurationChanged(android.content.res.Configuration c){super.onConfigurationChanged(c);h.post(()->handleOrientationChange());}\n    private void handleOrientationChange(){int o=getResources().getConfiguration().orientation;if(o==lastOrientation)return;lastOrientation=o;SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);boolean reopen=settingsOpen;int scroll=settingsScroll==null?0:settingsScroll.getScrollY();if(targetParams!=null){targetParams.x=opref(p,"target_x",dp(250));targetParams.y=opref(p,"target_y",dp(500));try{wm.updateViewLayout(target,targetParams);}catch(Exception ignored){}}if(timerParams!=null){timerParams.x=opref(p,"timer_x",dp(12));timerParams.y=opref(p,"timer_y",dp(70));try{wm.updateViewLayout(timerOverlay,timerParams);}catch(Exception ignored){}}rebuildControl(reopen);if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.scrollTo(0,scroll));refreshUi();updateTimerOverlay();}\n'''
+          assert anchor in x;x=x.replace(anchor,helper+anchor,1)
           x=x.replace('timerParams.x=p.getInt("timer_x",dp(12));timerParams.y=p.getInt("timer_y",dp(70));','timerParams.x=opref(p,"timer_x",dp(12));timerParams.y=opref(p,"timer_y",dp(70));',1)
           x=x.replace('.putInt("timer_x",timerParams.x).putInt("timer_y",timerParams.y).apply();','.putInt("timer_x"+orientSuffix(),timerParams.x).putInt("timer_y"+orientSuffix(),timerParams.y).apply();',1)
-          # Existing control/target loads use orientation key with old preference fallback.
-          x=x.replace('p.getInt("control_x",', 'opref(p,"control_x",',1).replace('p.getInt("control_y",','opref(p,"control_y",',1)
-          x=x.replace('p.getInt("target_x",', 'opref(p,"target_x",',1).replace('p.getInt("target_y",','opref(p,"target_y",',1)
-          # Save both current-orientation positions whenever existing drag listeners save legacy positions.
-          x=x.replace('.putInt("control_x",controlParams.x).putInt("control_y",controlParams.y).apply();','.putInt("control_x"+orientSuffix(),controlParams.x).putInt("control_y"+orientSuffix(),controlParams.y).apply();',1)
-          x=x.replace('.putInt("target_x",targetParams.x).putInt("target_y",targetParams.y).apply();','.putInt("target_x"+orientSuffix(),targetParams.x).putInt("target_y"+orientSuffix(),targetParams.y).apply();',1)
-          # Initialize orientation when service starts.
           x=x.replace('wm=(WindowManager)getSystemService(WINDOW_SERVICE);','wm=(WindowManager)getSystemService(WINDOW_SERVICE);lastOrientation=getResources().getConfiguration().orientation;',1)
           q.write_text(x)
-          # Manifest tells Android the accessibility service handles rotation itself.
           m=Path('jump-tapper/app/src/main/AndroidManifest.xml');z=m.read_text()
-          if 'android:configChanges=' not in z:
-              z=z.replace('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"','android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:configChanges="orientation|screenSize|smallestScreenSize"',1)
-          m.write_text(z)
-          # Version bump.
+          z=z.replace('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"','android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:configChanges="orientation|screenSize|smallestScreenSize"',1) if 'android:configChanges=' not in z else z;m.write_text(z)
           p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');p.write_text(p.read_text().replace('Jump Tapper v1.61','Jump Tapper v1.62'))
           g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 64','versionCode 65').replace("versionName '1.61'","versionName '1.62'"))
           PY
       - name: Verify source
         run: |
-          M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
-          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
-          grep -F 'private EditText days,hours' "$M"
-          grep -F 'onConfigurationChanged' "$S"
-          grep -F 'orientSuffix' "$S"
-          grep -F 'Jump Tapper v1.62' "$M"
+          M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java;S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          grep -F 'private EditText days,hours' "$M";grep -F 'onConfigurationChanged' "$S";grep -F 'orientSuffix' "$S";grep -F 'Jump Tapper v1.62' "$M"
       - name: Build
         working-directory: jump-tapper
         run: gradle assembleRelease
       - name: Verify APK
         run: |
-          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
-          test -s "$APK"
-          unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62'
-          unzip -p "$APK" classes.dex | strings | grep -F '_land'
-          unzip -p "$APK" classes.dex | strings | grep -F '_port'
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk;test -s "$APK";unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62';unzip -p "$APK" classes.dex | strings | grep -F '_land';unzip -p "$APK" classes.dex | strings | grep -F '_port'
       - name: Package
         run: |
-          mkdir sign-bundle
-          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk
-          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+          mkdir sign-bundle;cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk;A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1);cp "$A" sign-bundle/apksigner;cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
         with: {name: JumpTapper_v1.62_SIGNING_BUNDLE, path: sign-bundle}
