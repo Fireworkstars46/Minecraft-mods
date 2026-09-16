@@ -1,7 +1,8 @@
 name: Build Jump Tapper v1.62 APK
 'on':
   push:
-    branches: [build-jump-tapper-apk]
+    branches:
+      - build-jump-tapper-apk
   workflow_dispatch:
 jobs:
   build:
@@ -9,9 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with: {distribution: temurin, java-version: '17'}
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-        with: {gradle-version: '8.9'}
+        with:
+          gradle-version: '8.9'
       - name: Generate v1.61 source
         run: |
           python3 - <<'PY'
@@ -44,16 +48,29 @@ jobs:
           PY
       - name: Verify source
         run: |
-          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java; M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
-          grep -F 'onConfigurationChanged' "$S"; grep -F 'orientSuffix' "$S"; grep -F 'Jump Tapper v1.62' "$M"
+          S=jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+          M=jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java
+          grep -F 'onConfigurationChanged' "$S"
+          grep -F 'orientSuffix' "$S"
+          grep -F 'Jump Tapper v1.62' "$M"
       - name: Build
         working-directory: jump-tapper
         run: gradle assembleRelease
       - name: Verify APK
         run: |
-          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk; test -s "$APK"; unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62'; unzip -p "$APK" classes.dex | strings | grep -F '_land'; unzip -p "$APK" classes.dex | strings | grep -F '_port'
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.62'
+          unzip -p "$APK" classes.dex | strings | grep -F '_land'
+          unzip -p "$APK" classes.dex | strings | grep -F '_port'
       - name: Package
         run: |
-          mkdir sign-bundle; cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk; A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1); cp "$A" sign-bundle/apksigner; cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+          mkdir sign-bundle
+          cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.62_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          cp "$A" sign-bundle/apksigner
+          cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
       - uses: actions/upload-artifact@v4
-        with: {name: JumpTapper_v1.62_SIGNING_BUNDLE, path: sign-bundle}
+        with:
+          name: JumpTapper_v1.62_SIGNING_BUNDLE
+          path: sign-bundle
