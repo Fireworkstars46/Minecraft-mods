@@ -1,0 +1,65 @@
+name: Build Jump Tapper v1.61 APK fixed
+'on':
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Generate v1.60 source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml,subprocess
+          doc=yaml.safe_load(Path('.github/workflows/build-jump-tapper-v160.yml').read_text())
+          for name in ['Generate v1.59 source','Add SET action parity']:
+              st=next(q for q in doc['jobs']['build']['steps'] if q.get('name')==name);fn='/tmp/x.sh';Path(fn).write_text(st['run']);subprocess.run(['bash',fn],check=True)
+          PY
+      - name: Patch v1.61
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java');s=p.read_text()
+          s=s.replace('private TextView ovSelfTestResult;','private TextView ovSelfTestResult;\n    private TextView timerOverlay; private WindowManager.LayoutParams timerParams; private boolean timerMoveMode=false;')
+          anchor='    private final Runnable loop=new Runnable(){'
+          timer='''    private final Runnable timerLoop=new Runnable(){@Override public void run(){updateTimerOverlay();if(running)h.postDelayed(this,33L);}};\n    private String timerText(){if(!running)return "TIMER  STOPPED";if(intervalMs<=0L)return "TIMER  0.000s";long left=Math.max(0L,nextTapUptime-SystemClock.uptimeMillis());return String.format(Locale.US,"TIMER  %d.%03ds",left/1000L,left%1000L);}\n    private void createTimerOverlay(){if(timerOverlay!=null||wm==null)return;timerOverlay=new TextView(this);timerOverlay.setText(timerText());timerOverlay.setTextColor(Color.WHITE);timerOverlay.setTextSize(16);timerOverlay.setTypeface(Typeface.DEFAULT_BOLD);timerOverlay.setGravity(Gravity.CENTER);timerOverlay.setPadding(dp(12),dp(7),dp(12),dp(7));timerOverlay.setBackgroundColor(0xEE202124);SharedPreferences p=getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE);timerParams=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);timerParams.gravity=Gravity.TOP|Gravity.START;timerParams.x=p.getInt("timer_x",dp(12));timerParams.y=p.getInt("timer_y",dp(70));timerOverlay.setOnTouchListener(new TimerDragListener());wm.addView(timerOverlay,timerParams);applyTimerTouchability();}\n    private void updateTimerOverlay(){if(timerOverlay==null)createTimerOverlay();if(timerOverlay!=null)timerOverlay.setText(timerText());}\n    private void applyTimerTouchability(){if(timerOverlay==null||timerParams==null)return;if(timerMoveMode)timerParams.flags&=~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;else timerParams.flags|=WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;try{wm.updateViewLayout(timerOverlay,timerParams);}catch(Exception ignored){}}\n    private void setTimerMove(boolean move){timerMoveMode=move;applyTimerTouchability();if(timerLockButton!=null)timerLockButton.setText(timerMoveMode?"TIMER LOCK":"TIMER MOVE");vibrate(8);}\n\n'''
+          assert anchor in s;s=s.replace(anchor,timer+anchor,1)
+          s=s.replace('private Button startStop,moveButton,tapButton,targetButton,masterOverlayButton,settingsButton;','private Button startStop,moveButton,tapButton,targetButton,masterOverlayButton,settingsButton,timerLockButton;')
+          anchor='        topRow.addView(buttons);control.addView(topRow);';assert anchor in s;s=s.replace(anchor,'        timerLockButton=smallButton("TIMER MOVE",88);timerLockButton.setOnClickListener(v->setTimerMove(!timerMoveMode));\n'+anchor,1)
+          s=s.replace('if(masterEnabled)createTarget();refreshUi();','if(masterEnabled)createTarget();createTimerOverlay();refreshUi();',1)
+          s=s.replace('settingsButton=null;controlParams=null;settingsOpen=false;','settingsButton=null;timerLockButton=null;controlParams=null;settingsOpen=false;',1)
+          s=s.replace('if(settingsButton!=null)settingsButton.setVisibility(View.VISIBLE);','if(settingsButton!=null)settingsButton.setVisibility(View.VISIBLE);if(timerLockButton!=null){timerLockButton.setVisibility(View.VISIBLE);timerLockButton.setText(timerMoveMode?"TIMER LOCK":"TIMER MOVE");}',1)
+          s=s.replace('if(settingsButton!=null)settingsButton.setEnabled(true);','if(settingsButton!=null)settingsButton.setEnabled(true);if(timerLockButton!=null)timerLockButton.setEnabled(!running);',1)
+          start='nextTapUptime=SystemClock.uptimeMillis()+startDelayMs;h.postAtTime(loop,nextTapUptime);';assert start in s;s=s.replace(start,start+'h.removeCallbacks(timerLoop);h.post(timerLoop);updateTimerOverlay();',1)
+          stop='else{running=false;h.removeCallbacks(loop);';assert stop in s;s=s.replace(stop,'else{running=false;h.removeCallbacks(loop);h.removeCallbacks(timerLoop);updateTimerOverlay();',1)
+          old='boolean reopen=settingsOpen;rebuildControl(reopen);refreshUi();';assert old in s;s=s.replace(old,'boolean reopen=settingsOpen;final int keepX=controlParams==null?0:controlParams.x,keepY=controlParams==null?0:controlParams.y,keepScroll=settingsScroll==null?0:settingsScroll.getScrollY();rebuildControl(reopen);if(controlParams!=null){controlParams.x=keepX;controlParams.y=keepY;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.scrollTo(0,keepScroll));refreshUi();updateTimerOverlay();',1)
+          old='private void runFullAppSelfTest(){if(running)';assert old in s;s=s.replace(old,'private void runFullAppSelfTest(){final int testKeepX=controlParams==null?0:controlParams.x,testKeepY=controlParams==null?0:controlParams.y,testKeepScroll=settingsScroll==null?0:settingsScroll.getScrollY();if(running)',1)
+          old='rebuildControl(settingsOpen);refreshUi();broadcastSettingsChanged();broadcastMasterState();}';assert old in s;s=s.replace(old,'rebuildControl(settingsOpen);if(controlParams!=null){controlParams.x=testKeepX;controlParams.y=testKeepY;try{wm.updateViewLayout(control,controlParams);}catch(Exception ignored){}}if(settingsScroll!=null)settingsScroll.post(()->settingsScroll.scrollTo(0,testKeepScroll));refreshUi();updateTimerOverlay();broadcastSettingsChanged();broadcastMasterState();}',1)
+          anchor='    private class MenuListener implements View.OnTouchListener{';drag='''    private class TimerDragListener implements View.OnTouchListener{int sx,sy;float dx,dy;@Override public boolean onTouch(View v,MotionEvent e){if(!timerMoveMode||running)return false;switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:sx=timerParams.x;sy=timerParams.y;dx=e.getRawX();dy=e.getRawY();return true;case MotionEvent.ACTION_MOVE:timerParams.x=sx+Math.round(e.getRawX()-dx);timerParams.y=sy+Math.round(e.getRawY()-dy);try{wm.updateViewLayout(timerOverlay,timerParams);}catch(Exception ignored){}return true;case MotionEvent.ACTION_UP:case MotionEvent.ACTION_CANCEL:getSharedPreferences(MainActivity.PREFS,MODE_PRIVATE).edit().putInt("timer_x",timerParams.x).putInt("timer_y",timerParams.y).apply();return true;}return true;}}\n\n''';assert anchor in s;s=s.replace(anchor,drag+anchor,1)
+          s=s.replace('running=false;h.removeCallbacks(loop);captureMode=0;','running=false;h.removeCallbacks(loop);h.removeCallbacks(timerLoop);captureMode=0;',1)
+          s=s.replace('if(control!=null)try{wm.removeView(control);}catch(Exception ignored){}}flushLogsNow();','if(control!=null)try{wm.removeView(control);}catch(Exception ignored){}if(timerOverlay!=null)try{wm.removeView(timerOverlay);}catch(Exception ignored){}}flushLogsNow();',1)
+          p.write_text(s)
+          m=Path('jump-tapper/app/src/main/java/com/example/robloxjumptapper/MainActivity.java');m.write_text(m.read_text().replace('Jump Tapper v1.60','Jump Tapper v1.61'))
+          g=Path('jump-tapper/app/build.gradle');g.write_text(g.read_text().replace('versionCode 63','versionCode 64').replace("versionName '1.60'","versionName '1.61'"))
+          PY
+      - name: Verify source
+        run: grep -F 'TIMER MOVE' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java && grep -F 'testKeepScroll' jump-tapper/app/src/main/java/com/example/robloxjumptapper/TapAccessibilityService.java
+      - name: Build
+        working-directory: jump-tapper
+        run: gradle assembleRelease
+      - name: Verify APK
+        run: |
+          APK=jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"; unzip -p "$APK" classes.dex | strings | grep -F 'TIMER MOVE'; unzip -p "$APK" classes.dex | strings | grep -F 'TIMER  STOPPED'; unzip -p "$APK" classes.dex | strings | grep -F 'Jump Tapper v1.61'
+      - name: Package
+        run: |
+          mkdir sign-bundle; cp jump-tapper/app/build/outputs/apk/release/app-release-unsigned.apk sign-bundle/JumpTapper_v1.61_unsigned.apk
+          A=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1); cp "$A" sign-bundle/apksigner; cp "$(dirname "$A")/lib/apksigner.jar" sign-bundle/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with: {name: JumpTapper_v1.61_SIGNING_BUNDLE, path: sign-bundle}
