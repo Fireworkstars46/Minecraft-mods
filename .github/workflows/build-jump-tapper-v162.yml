@@ -3,6 +3,9 @@ name: Build Jump Tapper v1.62 APK
   push:
     branches:
       - build-jump-tapper-apk
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 jobs:
   build:
